@@ -1,0 +1,102 @@
+{
+  "$comment": "Machineleesbare schemabeschrijving van een reisdatabase (reisdb). Zie SCHEMA.md voor uitleg en regels.",
+  "format": "reisdb",
+  "schemaVersion": "1.0",
+  "modules": {
+    "kern": {
+      "version": "1.0",
+      "label": "Kern",
+      "required": true,
+      "description": "Wat elke reis nodig heeft: dagen, plaatsen, verblijf, boekingen, praktische info.",
+      "entityTypes": {
+        "dag":        { "label": "Reisdag",    "plural": "Reisdagen",    "icon": "📅", "group": "schema",
+                        "fields": { "when.start": "datum van de dag (JJJJ-MM-DD), verplicht" } },
+        "plaats":     { "label": "Plaats",     "plural": "Plaatsen",     "icon": "🗺️", "group": "gids",
+                        "attrs": { "soort": ["land", "regio", "stad", "buurt", "plein", "straat", "wijk"] } },
+        "locatie":    { "label": "Locatie",    "plural": "Locaties",     "icon": "📍", "group": "gids",
+                        "attrs": { "soort": "vrije tekst: station, winkel, park, uitzichtpunt, ...", "openingsuren": "tekst", "prijs": "tekst", "website": "url" } },
+        "verblijf":   { "label": "Verblijf",   "plural": "Verblijven",   "icon": "🛏️", "group": "praktisch",
+                        "attrs": { "inchecken": "tekst", "uitchecken": "tekst", "telefoon": "tekst", "code": "tekst (gevoelig)" } },
+        "boeking":    { "label": "Boeking",    "plural": "Boekingen",    "icon": "🎫", "group": "praktisch",
+                        "attrs": { "soort": ["vlucht", "trein", "bus", "auto", "ticket", "rondleiding", "restaurant", "verblijf", "andere"],
+                                   "referentie": "tekst (gevoelig)", "status": ["gepland", "geboekt", "betaald", "geannuleerd"],
+                                   "van": "tekst", "naar": "tekst", "prijs": "tekst", "personen": "tekst" } },
+        "restaurant": { "label": "Restaurant", "plural": "Restaurants",  "icon": "🍝", "group": "gids",
+                        "attrs": { "keuken": "tekst", "prijsklasse": "€ tot €€€€", "reserveren": "tekst", "openingsuren": "tekst" } },
+        "persoon":    { "label": "Persoon",    "plural": "Personen",     "icon": "👤", "group": "gids",
+                        "attrs": { "rol": "vrije tekst: kunstenaar, architect, opdrachtgever, contact, gids, ...", "telefoon": "tekst", "email": "tekst" } },
+        "notitie":    { "label": "Notitie",    "plural": "Notities",     "icon": "📝", "group": "praktisch" }
+      },
+      "relationTypes": {
+        "ligt-in":     { "label": "ligt in",        "inverse": "bevat",            "from": ["*"], "to": ["plaats", "locatie", "gebouw", "museum"] },
+        "gepland-op":  { "label": "gepland op",     "inverse": "programma",        "from": ["*"], "to": ["dag"],
+                         "attrs": { "tijd": "UU:MM of tekst", "volgorde": "getal", "duur": "tekst" } },
+        "overnachting":{ "label": "overnachting op","inverse": "overnachting in",  "from": ["dag"], "to": ["verblijf"] },
+        "hoort-bij":   { "label": "hoort bij",      "inverse": "boekingen",        "from": ["boeking"], "to": ["*"] },
+        "contact-van": { "label": "contact voor",   "inverse": "contactpersoon",   "from": ["persoon"], "to": ["*"] },
+        "familie-van": { "label": "familie van",    "inverse": "familie van",      "from": ["persoon"], "to": ["persoon"], "symmetric": true },
+        "dichtbij":    { "label": "dichtbij",       "inverse": "dichtbij",         "from": ["*"], "to": ["*"], "symmetric": true },
+        "zie-ook":     { "label": "zie ook",        "inverse": "zie ook",          "from": ["*"], "to": ["*"], "symmetric": true }
+      }
+    },
+    "cultuur": {
+      "version": "1.0",
+      "label": "Cultuur",
+      "description": "Kunstenaars, werken, gebouwen, musea, stromingen, ideeën, periodes en gebeurtenissen.",
+      "entityTypes": {
+        "werk":       { "label": "Werk",       "plural": "Werken",       "icon": "🖼️", "group": "gids",
+                        "attrs": { "soort": "schilderij, fresco, beeld, altaarstuk, boek, ...", "techniek": "tekst", "afmetingen": "tekst", "zaal": "tekst", "inventaris": "tekst" } },
+        "gebouw":     { "label": "Gebouw",     "plural": "Gebouwen",     "icon": "🏛️", "group": "gids", "extends": "locatie",
+                        "attrs": { "soort": "kerk, palazzo, toren, fontein, ...", "openingsuren": "tekst", "prijs": "tekst", "website": "url" } },
+        "museum":     { "label": "Museum",     "plural": "Musea",        "icon": "🏺", "group": "gids", "extends": "locatie",
+                        "attrs": { "openingsuren": "tekst", "prijs": "tekst", "website": "url", "tip": "tekst" } },
+        "stroming":   { "label": "Stroming of idee", "plural": "Stromingen en ideeën", "icon": "💡", "group": "gids",
+                        "attrs": { "soort": ["stroming", "school", "idee", "stijl"] } },
+        "periode":    { "label": "Periode",    "plural": "Periodes",     "icon": "⏳", "group": "gids",
+                        "fields": { "when.start": "beginjaar, verplicht", "when.end": "eindjaar" } },
+        "gebeurtenis":{ "label": "Gebeurtenis","plural": "Gebeurtenissen","icon": "⚡", "group": "gids" }
+      },
+      "relationTypes": {
+        "maakte":         { "label": "maakte",            "inverse": "gemaakt door",       "from": ["persoon"], "to": ["werk", "gebouw"],
+                            "attrs": { "rol": "bv. architect, toegeschreven, met atelier" } },
+        "opdrachtgever-van": { "label": "opdrachtgever van", "inverse": "opdrachtgever", "from": ["persoon"], "to": ["werk", "gebouw"] },
+        "hangt-in":       { "label": "hangt in",          "inverse": "collectie",          "from": ["werk"], "to": ["museum", "gebouw", "locatie"],
+                            "attrs": { "zaal": "tekst" } },
+        "leerling-van":   { "label": "leerling van",      "inverse": "leermeester van",    "from": ["persoon"], "to": ["persoon"] },
+        "beinvloed-door": { "label": "beïnvloed door",    "inverse": "beïnvloedde",        "from": ["persoon", "werk", "stroming"], "to": ["persoon", "werk", "stroming"] },
+        "illustreert":    { "label": "illustreert",       "inverse": "geïllustreerd door", "from": ["werk", "gebouw"], "to": ["stroming", "gebeurtenis", "persoon"] },
+        "behoort-tot":    { "label": "behoort tot",       "inverse": "omvat",              "from": ["persoon", "werk", "gebouw", "stroming", "gebeurtenis"], "to": ["stroming", "periode"] },
+        "beeldt-af":      { "label": "beeldt af",         "inverse": "afgebeeld in",       "from": ["werk"], "to": ["persoon", "gebeurtenis", "plaats", "gebouw"] },
+        "tijdens":        { "label": "tijdens",           "inverse": "gebeurtenissen",     "from": ["gebeurtenis"], "to": ["periode"] },
+        "werkte-in":      { "label": "werkte in",         "inverse": "werkplaats van",     "from": ["persoon"], "to": ["plaats", "gebouw"] }
+      }
+    }
+  },
+  "commonFields": {
+    "id": "verplicht, uniek, stabiel",
+    "type": "verplicht, een entityType",
+    "name": "verplicht",
+    "aliases": "lijst andere namen (zoeken en automatische links)",
+    "summary": "één regel",
+    "why": "waarom dit in de reis zit",
+    "priority": "1 moet, 2 graag, 3 als er tijd is",
+    "text": "lichte opmaak, [[id]]-links, namen worden automatisch link",
+    "attrs": "object met kenmerken",
+    "when": "{start, end} ISO-datum of jaartal",
+    "circa": "boolean",
+    "geo": "{lat, lng}",
+    "address": "tekst",
+    "maps": "Google Maps-url",
+    "tags": "lijst",
+    "attachments": "lijst bijlage-id's",
+    "image": "bijlage-id van een afbeelding",
+    "codes": "lijst {label, value, format: qr|tekst}",
+    "sensitive": "lijst attr-sleutels die gemaskeerd worden"
+  },
+  "plannedModules": {
+    "route": {
+      "label": "Route",
+      "description": "Gepland voor bv. een fietstocht: GPX-tracks (als bijlage), etappes, hoogteprofiel en kaart. Wordt toegevoegd als schemaVersion 1.1 zonder bestaande bestanden te breken."
+    }
+  }
+}
