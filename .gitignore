@@ -1,0 +1,4 @@
+# Echte reisbestanden nooit in de repository
+*.reis.json
+!voorbeeld/*.reis.json
+node_modules/
