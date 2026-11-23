@@ -5,7 +5,7 @@ import { renderText, inline, esc } from './text.js';
 import { validateTrip } from './validate.js';
 import { migrate } from './migrate.js';
 
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.2.1';
 const LS_ACTIVE = 'reisapp.active', LS_TODAY = 'reisapp.today', LS_SIZE = 'reisapp.size';
 let installPrompt = null;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -537,7 +537,7 @@ function b64ToBlob(b64, mime) {
 async function importData(raw, sourceName) {
   let data;
   try { data = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { showReport([`${sourceName} is geen geldige JSON (${e.message}).`], []); return false; }
-  data = migrate(data, parseInt(schema.schemaVersion, 10));
+  data = migrate(data, parseInt(schema.schemaVersion, 10)).data;
   const { errors, warnings } = validateTrip(data, schema);
   if (errors.length) { showReport(errors, warnings); return false; }
   const files = [];
@@ -565,8 +565,11 @@ async function loadSample() {
 }
 
 async function activate(id) {
-  const data = await db.getTrip(id);
+  let data = await db.getTrip(id);
   if (!data) { graph = null; ls.set(LS_ACTIVE, null); setTitle(); return; }
+  // Reizen die al op de gsm staan, mee omzetten na een app-update met een nieuw schema (alleen bij een major-versie).
+  const m = migrate(data, parseInt(schema.schemaVersion, 10));
+  if (m.changed) { data = m.data; await db.updateTrip(data); }
   graph = new Graph(data, schema);
   ls.set(LS_ACTIVE, id); setTitle();
 }
