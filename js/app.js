@@ -5,7 +5,7 @@ import { renderText, inline, esc } from './text.js';
 import { validateTrip } from './validate.js';
 import { migrate } from './migrate.js';
 
-export const APP_VERSION = '0.3.2';
+export const APP_VERSION = '0.3.3';
 const LS_ACTIVE = 'reisapp.active', LS_TODAY = 'reisapp.today', LS_SIZE = 'reisapp.size';
 let installPrompt = null;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
