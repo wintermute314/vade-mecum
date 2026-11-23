@@ -1,5 +1,5 @@
 // Service worker: app-schil offline beschikbaar. Reisgegevens staan in IndexedDB, niet in deze cache.
-const CACHE = 'vademecum-v0.1.0';
+const CACHE = 'vademecum-v0.2.0';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/db.js', 'js/graph.js', 'js/text.js', 'js/validate.js', 'js/migrate.js',

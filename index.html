@@ -10,11 +10,12 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="css/app.css">
+<script>try { var z = localStorage.getItem("reisapp.size"); if (z) document.documentElement.dataset.size = z; } catch (e) {}</script>
 </head>
 <body>
 <header class="top">
   <a class="brand" href="#/reizen" aria-label="Reizen kiezen"><span id="trip-title">Vade Mecum</span> <span class="caret">▾</span></a>
-  <a class="search-btn" href="#/zoek" aria-label="Zoeken">🔎</a>
+  <span class="top-btns"><a href="#/reizen" aria-label="Reizen en instellingen">🧳</a><a href="#/zoek" aria-label="Zoeken">🔎</a></span>
 </header>
 <main id="main"></main>
 <nav class="tabbar">
