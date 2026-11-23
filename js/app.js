@@ -5,7 +5,7 @@ import { renderText, inline, esc } from './text.js';
 import { validateTrip } from './validate.js';
 import { migrate } from './migrate.js';
 
-export const APP_VERSION = '0.3.0';
+export const APP_VERSION = '0.3.1';
 const LS_ACTIVE = 'reisapp.active', LS_TODAY = 'reisapp.today', LS_SIZE = 'reisapp.size';
 let installPrompt = null;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -331,6 +331,11 @@ function aiContext(e) {
   lines.push('', 'Mijn vraag: ');
   return lines.join('\n');
 }
+// Eenvoudige herkenbare iconen (geen officiële logobestanden).
+const ICON_CLAUDE = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><g stroke="#D97757" stroke-width="2.6" stroke-linecap="round">' +
+  [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5].map(a => `<line x1="12" y1="2.5" x2="12" y2="21.5" transform="rotate(${a} 12 12)"/>`).join('') + '</g></svg>';
+const ICON_GEMINI = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><defs><linearGradient id="gm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4285F4"/><stop offset="1" stop-color="#9B72CB"/></linearGradient></defs>' +
+  '<path fill="url(#gm)" d="M12 1.5C12.6 7.2 16.8 11.4 22.5 12C16.8 12.6 12.6 16.8 12 22.5C11.4 16.8 7.2 12.6 1.5 12C7.2 11.4 11.4 7.2 12 1.5Z"/></svg>';
 const claudeUrl = (e) => 'https://claude.ai/new?q=' + encodeURIComponent(aiContext(e));
 
 // ---------- Notities ----------
@@ -447,12 +452,16 @@ function viewEntity(id) {
   const days = graph.daysOf(e.id);
   const sens = new Set(e.sensitive || []);
   const attrs = Object.entries(e.attrs || {}).filter(([k, v]) => v !== '' && v != null && k !== 'soort' && k !== 'website');
-  const actions = [
-    m && `<a class="btn sm" href="${esc(m)}" target="_blank" rel="noopener">🧭 Kaart</a>`,
-    e.attrs?.website && `<a class="btn sm" href="${esc(e.attrs.website)}" target="_blank" rel="noopener">🌐 Website</a>`,
-    e.attrs?.telefoon && `<a class="btn sm" href="tel:${esc(String(e.attrs.telefoon).replace(/[^\d+]/g, ''))}">📞 Bellen</a>`,
+  // Eén knoppenrij: dagen, kaart, bellen, website, Claude, Gemini. Ronde knoppen van 48 px, groot genoeg om aan te tikken.
+  const tel = e.attrs?.telefoon && String(e.attrs.telefoon).replace(/[^\d+]/g, '');
+  const tools = [
+    ...days.map(d => `<a class="chip on" href="#/dag/${encodeURIComponent(d.id)}">📅 ${shortDate(d.when.start)}</a>`),
+    m && `<a class="btn sm tb" href="${esc(m)}" target="_blank" rel="noopener" aria-label="Kaart">🧭<span class="lbl"> Kaart</span></a>`,
+    tel && `<a class="btn sm tb" href="tel:${esc(tel)}" aria-label="Bellen">📞<span class="lbl"> Bellen</span></a>`,
+    e.attrs?.website && `<a class="ibtn" href="${esc(e.attrs.website)}" target="_blank" rel="noopener" aria-label="Website" title="Website">🌐</a>`,
+    `<a class="ibtn" data-claude="${esc(e.id)}" href="${esc(claudeUrl(e))}" target="_blank" rel="noopener" aria-label="Vraag Claude" title="Vraag Claude">${ICON_CLAUDE}</a>`,
+    `<button class="ibtn" data-gemini="${esc(e.id)}" aria-label="Vraag Gemini" title="Vraag Gemini">${ICON_GEMINI}</button>`,
   ].filter(Boolean).join('');
-  const askAi = `<div class="ask"><a class="btn sm ai" data-claude="${esc(e.id)}" href="${esc(claudeUrl(e))}" target="_blank" rel="noopener">💬 Vraag Claude</a><button class="btn sm ghost" data-gemini="${esc(e.id)}">✨ Gemini</button></div>`;
   const factRows = facts(e).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`);
   const attrRows = attrs.map(([k, v]) => {
     const val = Array.isArray(v) ? v.join(', ') : String(v);
@@ -485,11 +494,9 @@ function viewEntity(id) {
     <div class="f-type">${def.icon || ''} ${esc(def.label || e.type)}${e.attrs?.soort ? ' · ' + esc(e.attrs.soort) : ''}${e.priority ? ` <span class="prio p${e.priority}">${PRIO[e.priority] || ''}</span>` : ''}</div>
     <h1>${esc(e.name)}</h1>
     ${e.summary ? `<p class="lead">${esc(e.summary)}</p>` : ''}
-    ${days.length ? `<div class="chips">${days.map(d => `<a class="chip on" href="#/dag/${encodeURIComponent(d.id)}">📅 ${shortDate(d.when.start)}</a>`).join('')}</div>` : ''}
+    <div class="toolbar">${tools}</div>
     ${e.why ? `<div class="whybox"><b>Waarom?</b> ${inline(e.why, graph, e.id)}</div>` : ''}
     ${e.image ? `<img class="hero" data-att="${esc(e.image)}" alt="">` : ''}
-    ${actions ? `<div class="actions">${actions}</div>` : ''}
-    ${askAi}
     ${factRows.length || attrRows.length ? `<table class="attrs">${[...factRows, ...attrRows].join('')}</table>` : ''}
     ${codeBlock(e)}
     ${attachList(e)}
@@ -596,6 +603,12 @@ function bindCommon() {
   }));
   // Link pas bij het tikken opbouwen, zodat een net getypte notitie mee gaat.
   $main.querySelectorAll('a[data-claude]').forEach(a => a.addEventListener('click', () => { a.href = claudeUrl(graph.get(a.dataset.claude)); }));
+  // Past de knoppenrij niet op één lijn, toon Kaart en Bellen dan alleen als icoon.
+  $main.querySelectorAll('.toolbar').forEach(tb => {
+    const top = (el) => Math.round(el.getBoundingClientRect().top);
+    const kids = [...tb.children];
+    if (kids.length && kids.some(k => top(k) > top(kids[0]) + 4)) tb.classList.add('compact');
+  });
   bindNotes();
   $main.querySelectorAll('[data-act="clear-today"]').forEach(b => b.addEventListener('click', () => { ls.set(LS_TODAY, null); render(); toast('Echte datum'); }));
   $main.querySelectorAll('.reveal').forEach(b => b.addEventListener('click', async () => {
