@@ -137,6 +137,16 @@ Voor bv. een fietstocht: types `etappe` en `track` (GPX als bijlage), relaties `
 5. Voeg PDF's en afbeeldingen toe als `attachments` (base64) en verwijs ernaar vanuit de juiste entiteit.
 6. Controleer met `node tools/validate.mjs`. Fouten moeten weg; waarschuwingen mogen.
 
+### Oude reisbestanden
+
+Een reisbestand moet je nooit opnieuw laten maken omdat de app veranderd is:
+
+- **Een app-update** (nieuwe schermen, grotere letters, ...) raakt de reizen op de gsm niet. Ze blijven gewoon staan.
+- **Een schema-uitbreiding** (1.0 → 1.1) is achterwaarts compatibel: oude bestanden laden zoals ze zijn.
+- **Een schemawijziging** (1.x → 2.0) komt altijd samen met een migratie in `js/migrate.js`. Die zet oude bestanden om bij het importeren, en ook de reizen die al op de gsm staan. Migraties vormen een keten (1→2→3) en worden nooit verwijderd. `tools/test-migrate.mjs` test dat.
+- Een bestand zonder `schemaVersion` wordt als 1.0 gelezen.
+- Bewaar het originele `.reis.json` (bv. in Drive): dat is je archief, en het blijft altijd importeerbaar.
+
 ## Controle
 
 - De app controleert bij import: unieke id's, bestaande relatie-uiteinden, bekende types en relaties (anders een waarschuwing), datums van dagen.

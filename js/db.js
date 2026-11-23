@@ -54,6 +54,12 @@ export async function saveTrip(data, files) {
   await tx('trips', 'readwrite', s => { s.put(data); });
   await tx('files', 'readwrite', s => { for (const [k, b] of files) s.put(b, data.trip.id + '/' + k); });
 }
+// Alleen de reisgegevens vervangen (bijlagen blijven), bv. na een migratie.
+export async function updateTrip(data) {
+  const db = await open();
+  if (!db) { mem.trips.set(data.trip.id, data); return; }
+  await tx('trips', 'readwrite', s => { s.put(data); });
+}
 export async function deleteTrip(id) {
   const db = await open();
   if (!db) { mem.trips.delete(id); for (const k of [...mem.files.keys()]) if (k.startsWith(id + '/')) mem.files.delete(k); return; }
