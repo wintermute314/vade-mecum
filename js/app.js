@@ -5,8 +5,12 @@ import { renderText, inline, esc } from './text.js';
 import { validateTrip } from './validate.js';
 import { migrate } from './migrate.js';
 
-export const APP_VERSION = '0.1.0';
-const LS_ACTIVE = 'reisapp.active', LS_TODAY = 'reisapp.today';
+export const APP_VERSION = '0.2.0';
+const LS_ACTIVE = 'reisapp.active', LS_TODAY = 'reisapp.today', LS_SIZE = 'reisapp.size';
+let installPrompt = null;
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+window.addEventListener('beforeinstallprompt', (ev) => { ev.preventDefault(); installPrompt = ev; if (/start|reizen|^$/.test(parseHash().name)) render(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; toast('Vade Mecum staat op je startscherm.'); render(); });
 const ls = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
@@ -107,9 +111,18 @@ function viewWelcome() {
     <p>Nog geen reis op dit toestel. Importeer een reisbestand (<code>.reis.json</code>), bijvoorbeeld vanuit Drive. Het bestand blijft enkel op deze telefoon.</p>
     <button class="btn primary" data-act="import">Reis importeren</button>
     <button class="btn" data-act="sample">Voorbeeldreis bekijken</button>
+    ${installBox(true)}
   </div>`;
 }
 function bindWelcome() { bindCommon(); }
+
+// ---------- Installeren ----------
+function installBox(always) {
+  if (isStandalone()) return '';
+  if (installPrompt) return `<div class="install"><span class="ic">📲</span><span class="rt"><span class="nm">Zet Vade Mecum op je startscherm</span><span class="sm">Dan opent hij als een gewone app, ook offline.</span></span><button class="btn primary sm" data-act="install">Installeren</button></div>`;
+  if (!always) return '';
+  return `<div class="install"><span class="ic">📲</span><span class="rt"><span class="nm">Op je startscherm zetten</span><span class="sm">Tik in Chrome rechtsboven op ⋮ en kies <b>App installeren</b> of <b>Toevoegen aan startscherm</b>. Zie je dat niet, herlaad dan de pagina eenmaal en kijk opnieuw.</span></span></div>`;
+}
 
 // ---------- Start ----------
 function currentDay() {
@@ -143,7 +156,7 @@ function viewHome() {
     ['📅', 'Dagen', '#/schema'], ['🧭', 'Gids', '#/gids'], ['🎫', 'Boekingen', '#/praktisch'], ['🔎', 'Zoeken', '#/zoek'],
   ].map(([ic, l, h]) => `<a class="tile" href="${h}"><span>${ic}</span>${l}</a>`).join('');
   const quick = (list) => `<div class="qgrid">${list.map(e => `<a class="qitem" href="#/e/${encodeURIComponent(e.id)}"><span class="ic">${icon(e)}</span><span class="nm">${esc(e.name)}</span>${e.priority === 1 ? '<span class="must">★</span>' : ''}</a>`).join('')}</div>`;
-  return `${dayCard}
+  return `${installBox(false)}${dayCard}
     <div class="tiles">${tiles}</div>
     ${stays.length ? section('Verblijf', stays.map(s => link(s, `<span class="sm">${esc([fmtWhen(s), s.address].filter(Boolean).join(' · '))}</span>`)).join('')) : ''}
     ${sights.length ? section('Musea en gebouwen', quick(sights)) : ''}`;
@@ -437,6 +450,7 @@ async function viewTrips() {
   const active = ls.get(LS_ACTIVE);
   const persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted().catch(() => false) : false;
   return `<h1 class="pt">Reizen</h1>
+    <p class="muted">Je kunt meerdere reizen bewaren. Tik op een reis om ze actief te maken; bovenaan staat altijd de actieve reis.</p>
     ${trips.length ? `<div class="list">${trips.map(t => `<div class="trip ${t.id === active ? 'on' : ''}">
       <button class="rt" data-activate="${esc(t.id)}"><span class="nm">${t.id === active ? '✓ ' : ''}${esc(t.title)}</span><span class="sm">${fmtIso(t.start)} – ${fmtIso(t.end)}</span></button>
       <button class="btn sm ghost" data-delete="${esc(t.id)}" aria-label="Verwijderen">🗑️</button></div>`).join('')}</div>` : empty('Nog geen reizen op dit toestel.')}
@@ -444,6 +458,8 @@ async function viewTrips() {
       <button class="btn primary" data-act="import">Reis importeren</button>
       <button class="btn" data-act="sample">Voorbeeldreis laden</button>
     </div>
+    ${section('Lettergrootte', `<div class="sizes">${[['normaal', 'Normaal'], ['groot', 'Groot'], ['extra', 'Extra groot']].map(([k, l]) => `<button class="btn ${(ls.get(LS_SIZE) || 'groot') === k ? 'on' : ''}" data-size="${k}">${l}</button>`).join('')}</div>`)}
+    ${section('Installeren', installBox(true) || '<p class="muted">Vade Mecum is geïnstalleerd.</p>')}
     ${section('Datum', `<p class="muted">“Vandaag” gebruikt de datum van de telefoon. Om een reis vooraf te testen kun je een datum instellen.</p>
       <div class="row2"><input type="date" id="fake-today" value="${esc(ls.get(LS_TODAY) || '')}"><button class="btn sm" data-act="clear-today">Echte datum</button></div>`)}
     ${section('Opslag', `<p class="muted">Reizen staan alleen in de browseropslag van dit toestel${db.isMemoryOnly() ? ' (nu alleen tijdelijk in het geheugen: deze browser laat geen opslag toe)' : ''}. ${persisted ? 'De browser heeft beloofd ze niet zelf op te ruimen.' : 'Als je de browsergegevens wist, moet je de reis opnieuw importeren.'}</p>`)}
@@ -456,6 +472,9 @@ function bindTrips() {
     if (ls.get(LS_ACTIVE) === b.dataset.delete) { ls.set(LS_ACTIVE, null); graph = null; setTitle(); }
     render();
   })));
+  $main.querySelectorAll('[data-size]').forEach(b => b.addEventListener('click', () => {
+    ls.set(LS_SIZE, b.dataset.size); document.documentElement.dataset.size = b.dataset.size; render();
+  }));
   const ft = document.getElementById('fake-today');
   ft && ft.addEventListener('change', () => { ls.set(LS_TODAY, ft.value || null); toast(ft.value ? `Vandaag = ${ft.value}` : 'Echte datum'); });
 }
@@ -463,6 +482,10 @@ function bindTrips() {
 // ---------- gedeelde acties ----------
 function bindCommon() {
   $main.querySelectorAll('[data-act="import"]').forEach(b => b.addEventListener('click', () => document.getElementById('file').click()));
+  $main.querySelectorAll('[data-act="install"]').forEach(b => b.addEventListener('click', async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt(); await installPrompt.userChoice.catch(() => null); installPrompt = null; render();
+  }));
   $main.querySelectorAll('[data-act="sample"]').forEach(b => b.addEventListener('click', loadSample));
   $main.querySelectorAll('[data-act="clear-today"]').forEach(b => b.addEventListener('click', () => { ls.set(LS_TODAY, null); render(); toast('Echte datum'); }));
   $main.querySelectorAll('.reveal').forEach(b => b.addEventListener('click', async () => {
