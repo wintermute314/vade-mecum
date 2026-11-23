@@ -99,10 +99,11 @@ main { padding: 12px 16px calc(var(--tab-h) + var(--safe-b) + 24px); max-width: 
 .nav { font-size: 2rem; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 22px; background: var(--card); border: 1px solid var(--line); flex: none; }
 .nav.off { opacity: .25; color: var(--muted); }
 .prog { list-style: none; padding: 0; margin: 12px 0; }
-.pi { display: flex; align-items: stretch; gap: 8px; margin-bottom: 8px; }
-.pt-t { width: 3.2em; flex: none; font-weight: 700; padding-top: 12px; font-variant-numeric: tabular-nums; }
-.pi-b { flex: 1; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; color: var(--ink); min-width: 0; }
-.mapbtn { flex: none; width: 48px; display: flex; align-items: center; justify-content: center; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 1.3rem; }
+.pi { position: relative; margin-bottom: 8px; }
+.pt-t { display: block; font-size: .85rem; font-weight: 700; color: var(--accent); margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+.pi-b { display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; color: var(--ink); min-width: 0; }
+.pi.has-map .pi-b { padding-right: 64px; }
+.mapbtn { position: absolute; top: 8px; right: 8px; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: var(--soft); border-radius: 24px; font-size: 1.3rem; }
 .hint { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 1.5rem; }
 
 /* Gids */

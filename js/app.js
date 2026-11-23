@@ -5,7 +5,7 @@ import { renderText, inline, esc } from './text.js';
 import { validateTrip } from './validate.js';
 import { migrate } from './migrate.js';
 
-export const APP_VERSION = '0.3.1';
+export const APP_VERSION = '0.3.2';
 const LS_ACTIVE = 'reisapp.active', LS_TODAY = 'reisapp.today', LS_SIZE = 'reisapp.size';
 let installPrompt = null;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -193,8 +193,8 @@ function dayBody(d, isToday) {
   const items = prog.map(p => {
     const e = p.entity, m = mapsUrl(e);
     const extra = [p.rel?.attrs?.duur, p.rel?.note].filter(Boolean).map(esc).join(' · ');
-    return `<li class="pi"><div class="pt-t">${esc(p.tijd) || ''}</div>
-      <a class="pi-b" href="#/e/${encodeURIComponent(e.id)}"><span class="nm">${icon(e)} ${esc(e.name)}</span>${e.summary ? `<span class="sm">${esc(e.summary)}</span>` : ''}${extra ? `<span class="sm">${extra}</span>` : ''}</a>
+    return `<li class="pi${m ? ' has-map' : ''}">
+      <a class="pi-b" href="#/e/${encodeURIComponent(e.id)}">${p.tijd ? `<span class="pt-t">🕐 ${esc(p.tijd)}</span>` : ''}<span class="nm">${icon(e)} ${esc(e.name)}</span>${e.summary ? `<span class="sm">${esc(e.summary)}</span>` : ''}${extra ? `<span class="sm">${extra}</span>` : ''}</a>
       ${m ? `<a class="mapbtn" href="${esc(m)}" target="_blank" rel="noopener" aria-label="Kaart">🧭</a>` : ''}</li>`;
   }).join('');
   return `<div class="day" data-prev="${prev ? esc(prev.id) : ''}" data-next="${next ? esc(next.id) : ''}">
