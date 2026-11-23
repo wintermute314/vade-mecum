@@ -185,3 +185,9 @@ main { padding: 12px 16px calc(var(--tab-h) + var(--safe-b) + 24px); max-width: 
 .sizes .btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .install .sm { -webkit-line-clamp: unset; display: block; }
 .sizes .btn { padding: 0 8px; font-size: .85rem; white-space: nowrap; }
+
+.note { width: 100%; font: inherit; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); resize: vertical; }
+.note:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.note-st { margin-top: 4px; }
+.ask { display: flex; gap: 8px; margin: 14px 0 4px; }
+.ask .btn.ai { flex: 1; background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }

@@ -5,7 +5,7 @@ import { renderText, inline, esc } from './text.js';
 import { validateTrip } from './validate.js';
 import { migrate } from './migrate.js';
 
-export const APP_VERSION = '0.2.2';
+export const APP_VERSION = '0.3.0';
 const LS_ACTIVE = 'reisapp.active', LS_TODAY = 'reisapp.today', LS_SIZE = 'reisapp.size';
 let installPrompt = null;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -17,6 +17,7 @@ const ls = {
 };
 
 let schema = null, graph = null;
+let notes = new Map();   // entityId → notitie van de actieve reis
 const $main = document.getElementById('main');
 const $title = document.getElementById('trip-title');
 const scrollMem = new Map();
@@ -207,6 +208,7 @@ function dayBody(d, isToday) {
     ${d.text ? `<div class="prose">${renderText(d.text, graph, d.id)}</div>` : ''}
     ${stay ? section('Overnachting', link(stay)) : ''}
     ${attachList(d)}
+    ${noteBlock(d.id)}
     <p class="hint">Veeg links of rechts voor een andere dag.</p>
   </div>`;
 }
@@ -285,7 +287,7 @@ function viewPractical() {
   const stays = graph.ofType('verblijf');
   const bookings = graph.ofType('boeking').sort((a, b) => String(a.when?.start || '9').localeCompare(String(b.when?.start || '9')));
   const contacts = graph.ofType('persoon').filter(p => /contact|gastheer|gastvrouw|gids|host/i.test(p.attrs?.rol || '') || graph.related(p.id, 'contact-van').length);
-  const notes = graph.ofType('notitie');
+  const noteEntities = graph.ofType('notitie');
   const referenced = new Set(graph.entities.flatMap(e => [...(e.attachments || []), e.image].filter(Boolean)));
   const docs = [...graph.attachments.values()];
   return `<h1 class="pt">Praktisch</h1>
@@ -293,9 +295,100 @@ function viewPractical() {
     ${section('Boekingen', bookings.map(b => link(b, `<span class="sm">${esc([fmtIso(b.when?.start), b.attrs?.soort, b.attrs?.status].filter(Boolean).join(' · '))}</span>`)).join(''))}
     ${section('Documenten', docs.map(a => attButton(a, !referenced.has(a.id) ? '' : ownerOf(a.id))).join(''))}
     ${section('Contacten', contacts.map(p => link(p, `<span class="sm">${esc(p.attrs?.rol || '')}${p.attrs?.telefoon ? ' · ' + esc(p.attrs.telefoon) : ''}</span>`)).join(''))}
-    ${section('Notities', notes.map(n => link(n)).join(''))}`;
+    ${section('Notities', noteEntities.map(n => link(n)).join(''))}
+    ${section('Mijn notities', [...notes.values()].sort((a, b) => b.updated.localeCompare(a.updated)).map(n => {
+      const e = graph.get(n.entityId);
+      const sub = `<span class="sm">${esc(n.text)}</span>`;
+      return e ? link(e, sub) : `<div class="row"><span class="ic">📝</span><span class="rt"><span class="nm">${esc(n.name)}</span>${sub}<span class="sm">fiche niet meer in deze versie van de reis</span></span></div>`;
+    }).join(''))}`;
 }
 const ownerOf = (attId) => { const e = graph.entities.find(x => (x.attachments || []).includes(attId)); return e ? e.name : ''; };
+
+// ---------- Vraag Claude / Gemini ----------
+// Bouwt een korte context van de fiche (zonder gevoelige gegevens, codes of bijlagen) voor een AI-assistent.
+function aiContext(e) {
+  const t = graph.trip, lines = [];
+  const def = graph.typeDef(e.type);
+  lines.push(`Ik ben op reis: ${t.title} (${fmtIso(t.start)} – ${fmtIso(t.end)}).`);
+  lines.push('Ik bekijk in mijn reisgids de fiche hieronder en wil er meer over weten. Zoek op het web wat nuttig is en antwoord in het Nederlands, kort en goed leesbaar op een gsm.');
+  lines.push('', `--- ${e.name} (${def.label || e.type}) ---`);
+  if (e.summary) lines.push(e.summary);
+  const plain = (html) => html.replace(/<br>/g, '; ').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  for (const [k, v] of facts(e)) lines.push(`${k}: ${plain(v)}`);
+  const sens = new Set(e.sensitive || []);
+  for (const [k, v] of Object.entries(e.attrs || {})) if (!sens.has(k) && v !== '' && v != null) lines.push(`${cap(k)}: ${Array.isArray(v) ? v.join(', ') : v}`);
+  if (e.why) lines.push(`Waarom in de reis: ${e.why}`);
+  if (e.text) {
+    let txt = e.text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2').replace(/\[\[([^\]]+)\]\]/g, (_, id) => graph.get(id.trim())?.name || id).replace(/[*#]/g, '');
+    if (txt.length > 1200) txt = txt.slice(0, 1200) + '…';
+    lines.push('', txt);
+  }
+  const rel = graph.neighbours(e.id).filter(g => g.label !== 'programma').slice(0, 6)
+    .map(g => `${cap(g.label)}: ${g.items.slice(0, 6).map(i => i.entity.name).join(', ')}`);
+  if (rel.length) lines.push('', ...rel);
+  const n = notes.get(e.id);
+  if (n && n.text) lines.push('', `Mijn eigen notitie: ${n.text.slice(0, 400)}`);
+  lines.push('', 'Mijn vraag: ');
+  return lines.join('\n');
+}
+const claudeUrl = (e) => 'https://claude.ai/new?q=' + encodeURIComponent(aiContext(e));
+
+// ---------- Notities ----------
+function noteBlock(id) {
+  const n = notes.get(id);
+  return section('Mijn notities', `<textarea class="note" data-note="${esc(id)}" rows="${n && n.text ? 4 : 2}" placeholder="Bv. een telefoonnummer, een naam, een tip…">${esc(n ? n.text : '')}</textarea>
+    <div class="note-st muted small" data-note-st="${esc(id)}">${n ? 'Bewaard op deze gsm · ' + new Date(n.updated).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) : 'Blijft bewaard, ook als je de reis opnieuw importeert.'}</div>`);
+}
+async function saveNote(id, text) {
+  const e = graph.get(id);
+  const note = { key: graph.trip.id + '/' + id, tripId: graph.trip.id, entityId: id, name: e ? e.name : (notes.get(id)?.name || id), text: text.trim(), updated: new Date().toISOString() };
+  await db.putNote(note);
+  if (note.text) notes.set(id, note); else notes.delete(id);
+  const st = $main.querySelector(`[data-note-st="${CSS.escape(id)}"]`);
+  if (st) st.textContent = note.text ? 'Bewaard ✓' : 'Notitie gewist';
+}
+function bindNotes() {
+  $main.querySelectorAll('textarea[data-note]').forEach(t => {
+    let timer = null;
+    const save = () => { clearTimeout(timer); saveNote(t.dataset.note, t.value); };
+    t.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(save, 700); const st = $main.querySelector(`[data-note-st="${CSS.escape(t.dataset.note)}"]`); if (st) st.textContent = 'Bezig met bewaren…'; });
+    t.addEventListener('blur', save);
+  });
+}
+async function exportNotes() {
+  const list = [...notes.values()];
+  if (!list.length) { toast('Er zijn nog geen notities voor deze reis.'); return; }
+  const data = { format: 'vademecum-notities', version: 1, tripId: graph.trip.id, tripTitle: graph.trip.title, exported: new Date().toISOString(),
+    notes: list.map(({ entityId, name, text, updated }) => ({ entityId, name, text, updated })) };
+  const name = `${graph.trip.id}-notities.json`;
+  const file = new File([JSON.stringify(data, null, 1)], name, { type: 'application/json' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: `Notities ${graph.trip.title}` }); return; }
+  } catch (err) { if (err && err.name === 'AbortError') return; }
+  const url = URL.createObjectURL(file);
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('Notities bewaard in Downloads.');
+}
+async function importNotes(text) {
+  let data;
+  try { data = JSON.parse(text); } catch { toast('Dit is geen notitiebestand.'); return; }
+  if (data.format !== 'vademecum-notities' || !Array.isArray(data.notes)) { toast('Dit is geen notitiebestand van Vade Mecum.'); return; }
+  const tripId = data.tripId;
+  const existing = new Map((await db.getNotes(tripId)).map(n => [n.entityId, n]));
+  let added = 0;
+  for (const n of data.notes) {
+    if (!n.entityId || !n.text) continue;
+    const cur = existing.get(n.entityId);
+    if (cur && cur.text === n.text) continue;
+    if (cur && cur.updated > n.updated) continue;          // de nieuwste versie wint
+    await db.putNote({ key: tripId + '/' + n.entityId, tripId, entityId: n.entityId, name: n.name || n.entityId, text: n.text, updated: n.updated || new Date().toISOString() });
+    added++;
+  }
+  if (graph && graph.trip.id === tripId) notes = new Map((await db.getNotes(tripId)).map(n => [n.entityId, n]));
+  toast(`${added} ${added === 1 ? 'notitie' : 'notities'} ingelezen${graph && graph.trip.id !== tripId ? ` voor reis “${data.tripTitle || tripId}”` : ''}.`);
+  render();
+}
 
 // ---------- Fiche ----------
 const PRIO = { 1: '★ Moet je zien', 2: 'Graag zien', 3: 'Als er tijd is' };
@@ -359,6 +452,7 @@ function viewEntity(id) {
     e.attrs?.website && `<a class="btn sm" href="${esc(e.attrs.website)}" target="_blank" rel="noopener">🌐 Website</a>`,
     e.attrs?.telefoon && `<a class="btn sm" href="tel:${esc(String(e.attrs.telefoon).replace(/[^\d+]/g, ''))}">📞 Bellen</a>`,
   ].filter(Boolean).join('');
+  const askAi = `<div class="ask"><a class="btn sm ai" data-claude="${esc(e.id)}" href="${esc(claudeUrl(e))}" target="_blank" rel="noopener">💬 Vraag Claude</a><button class="btn sm ghost" data-gemini="${esc(e.id)}">✨ Gemini</button></div>`;
   const factRows = facts(e).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`);
   const attrRows = attrs.map(([k, v]) => {
     const val = Array.isArray(v) ? v.join(', ') : String(v);
@@ -395,6 +489,7 @@ function viewEntity(id) {
     ${e.why ? `<div class="whybox"><b>Waarom?</b> ${inline(e.why, graph, e.id)}</div>` : ''}
     ${e.image ? `<img class="hero" data-att="${esc(e.image)}" alt="">` : ''}
     ${actions ? `<div class="actions">${actions}</div>` : ''}
+    ${askAi}
     ${factRows.length || attrRows.length ? `<table class="attrs">${[...factRows, ...attrRows].join('')}</table>` : ''}
     ${codeBlock(e)}
     ${attachList(e)}
@@ -404,6 +499,7 @@ function viewEntity(id) {
     ${relHtml}
     ${inPeriod}
     ${mentioned.length ? section('Vermeld bij', mentioned.map(x => link(x)).join('')) : ''}
+    ${noteBlock(e.id)}
     ${(e.tags || []).length ? `<div class="chips tags">${e.tags.map(t => `<a class="chip" href="#/zoek?q=${encodeURIComponent(t)}">#${esc(t)}</a>`).join('')}</div>` : ''}
   </article>`;
 }
@@ -429,6 +525,8 @@ function viewSearch(q) {
 function searchResults(q) {
   if (!q.trim()) return `<p class="muted">Zoek op naam, werk, plaats, trefwoord of een woord uit een tekst. Accenten en hoofdletters maken niet uit.</p>`;
   const res = graph.search(q);
+  const fq = fold(q), seen = new Set(res.map(e => e.id));
+  for (const n of notes.values()) if (fold(n.text).includes(fq) && graph.get(n.entityId) && !seen.has(n.entityId)) res.push(graph.get(n.entityId));
   if (!res.length) return empty(`Niets gevonden voor “${esc(q)}”.`);
   return `<p class="muted">${res.length} ${res.length === 1 ? 'resultaat' : 'resultaten'}</p><div class="list">` + res.slice(0, 80).map(e => {
     const sn = graph.snippet(e, q);
@@ -458,6 +556,8 @@ async function viewTrips() {
       <button class="btn primary" data-act="import">Reis importeren</button>
       <button class="btn" data-act="sample">Voorbeeldreis laden</button>
     </div>
+    ${graph ? section('Mijn notities', `<p class="muted">Je notities staan los van het reisbestand: ze blijven bewaard als je de reis opnieuw importeert. Maak af en toe een back-up, bv. naar Drive.</p>
+      <div class="actions"><button class="btn sm" data-act="notes-export">⬆︎ Notities exporteren (${notes.size})</button><button class="btn sm" data-act="notes-import">⬇︎ Notities importeren</button></div>`) : ''}
     ${section('Lettergrootte', `<div class="sizes">${[['normaal', 'Normaal'], ['groot', 'Groot'], ['extra', 'Extra groot']].map(([k, l]) => `<button class="btn ${(ls.get(LS_SIZE) || 'groot') === k ? 'on' : ''}" data-size="${k}">${l}</button>`).join('')}</div>`)}
     ${section('Installeren', installBox(true) || '<p class="muted">Vade Mecum is geïnstalleerd.</p>')}
     ${section('Datum', `<p class="muted">“Vandaag” gebruikt de datum van de telefoon. Om een reis vooraf te testen kun je een datum instellen.</p>
@@ -467,7 +567,7 @@ async function viewTrips() {
 }
 function bindTrips() {
   $main.querySelectorAll('[data-activate]').forEach(b => b.addEventListener('click', async () => { await activate(b.dataset.activate); location.hash = '#/start'; }));
-  $main.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => confirmBox(`Reis verwijderen van dit toestel?`, async () => {
+  $main.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => confirmBox(`Reis verwijderen van dit toestel? Ook je notities bij deze reis worden gewist; exporteer ze eerst als je ze wilt bewaren.`, async () => {
     await db.deleteTrip(b.dataset.delete);
     if (ls.get(LS_ACTIVE) === b.dataset.delete) { ls.set(LS_ACTIVE, null); graph = null; setTitle(); }
     render();
@@ -487,6 +587,16 @@ function bindCommon() {
     installPrompt.prompt(); await installPrompt.userChoice.catch(() => null); installPrompt = null; render();
   }));
   $main.querySelectorAll('[data-act="sample"]').forEach(b => b.addEventListener('click', loadSample));
+  $main.querySelectorAll('[data-act="notes-export"]').forEach(b => b.addEventListener('click', exportNotes));
+  $main.querySelectorAll('[data-act="notes-import"]').forEach(b => b.addEventListener('click', () => document.getElementById('notesfile').click()));
+  $main.querySelectorAll('[data-gemini]').forEach(b => b.addEventListener('click', async () => {
+    const e = graph.get(b.dataset.gemini);
+    try { await navigator.clipboard.writeText(aiContext(e)); toast('Gekopieerd. Plak het in Gemini en typ je vraag.', 3500); } catch { toast('Kopiëren lukte niet.'); }
+    window.open('https://gemini.google.com/app', '_blank', 'noopener');
+  }));
+  // Link pas bij het tikken opbouwen, zodat een net getypte notitie mee gaat.
+  $main.querySelectorAll('a[data-claude]').forEach(a => a.addEventListener('click', () => { a.href = claudeUrl(graph.get(a.dataset.claude)); }));
+  bindNotes();
   $main.querySelectorAll('[data-act="clear-today"]').forEach(b => b.addEventListener('click', () => { ls.set(LS_TODAY, null); render(); toast('Echte datum'); }));
   $main.querySelectorAll('.reveal').forEach(b => b.addEventListener('click', async () => {
     b.replaceWith(Object.assign(document.createElement('span'), { className: 'revealed', textContent: b.dataset.val }));
@@ -571,6 +681,7 @@ async function activate(id) {
   const m = migrate(data, parseInt(schema.schemaVersion, 10));
   if (m.changed) { data = m.data; await db.updateTrip(data); }
   graph = new Graph(data, schema);
+  notes = new Map((await db.getNotes(id)).map(n => [n.entityId, n]));
   ls.set(LS_ACTIVE, id); setTitle();
 }
 function setTitle() { $title.textContent = graph ? graph.trip.title : 'Vade Mecum'; document.title = graph ? graph.trip.title + ' · Vade Mecum' : 'Vade Mecum'; }
@@ -591,6 +702,10 @@ $main.addEventListener('touchend', (ev) => {
 // ---------- opstart ----------
 async function start() {
   schema = await (await fetch('schema/schema.json')).json();
+  document.getElementById('notesfile').addEventListener('change', async (ev) => {
+    const f = ev.target.files[0]; ev.target.value = '';
+    if (f) await importNotes(await f.text());
+  });
   document.getElementById('file').addEventListener('change', async (ev) => {
     const f = ev.target.files[0]; ev.target.value = '';
     if (f) await importData(await f.text(), f.name);
