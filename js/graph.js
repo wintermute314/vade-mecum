@@ -9,6 +9,22 @@ export const yearOf = (iso) => { const m = /^(-?\d{1,4})/.exec(String(iso ?? '')
 export const dateOf = (iso) => { const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(iso ?? '')); return m ? m[1] : null; };
 export const timeOf = (iso) => { const m = /T(\d{2}:\d{2})/.exec(String(iso ?? '')); return m ? m[1] : null; };
 
+// Tijd → minuten sinds middernacht. Begrijpt "09:30", "9u30", "14h", en dagdelen in het Nederlands.
+const DAYPARTS = [
+  [/vroege?.*namiddag/, 13 * 60 + 30], [/late.*namiddag|vooravond/, 17 * 60], [/namiddag/, 15 * 60],
+  [/vroege?.*(ochtend|morgen)|ontbijt/, 8 * 60], [/late.*(ochtend|morgen)|voormiddag/, 11 * 60], [/(ochtend|morgen)/, 9 * 60 + 30],
+  [/lunch|middag/, 12 * 60 + 30],
+  [/late.*avond/, 21 * 60 + 30], [/diner|avondeten/, 19 * 60 + 30], [/avond/, 19 * 60], [/nacht/, 23 * 60],
+];
+export function timeKey(t) {
+  if (!t) return null;
+  const s = String(t).toLowerCase().trim();
+  const m = /^(\d{1,2})\s*[:.uh]\s*(\d{2})?/.exec(s);
+  if (m) return +m[1] * 60 + (+m[2] || 0);
+  for (const [re, min] of DAYPARTS) if (re.test(s)) return min;
+  return null;
+}
+
 export class Graph {
   constructor(data, schema) {
     this.data = data;
@@ -83,7 +99,9 @@ export class Graph {
       if (e.type === 'dag' || seen.has(e.id)) continue;
       if (dateOf(e.when?.start) === date && (e.type === 'boeking' || timeOf(e.when.start))) items.push({ entity: e, rel: null, tijd: timeOf(e.when.start) || '', volgorde: 500 });
     }
-    return items.sort((a, b) => (a.tijd && b.tijd ? a.tijd.localeCompare(b.tijd) : 0) || (a.tijd ? -1 : b.tijd ? 1 : 0) || a.volgorde - b.volgorde);
+    // Chronologisch, ook bij vage tijden ("late ochtend", "namiddag"). Zonder herkenbare tijd telt de volgorde.
+    for (const it of items) it.key = timeKey(it.tijd);
+    return items.sort((a, b) => (a.key != null && b.key != null && a.key !== b.key) ? a.key - b.key : (a.volgorde - b.volgorde) || ((a.key ?? 9999) - (b.key ?? 9999)));
   }
   stayFor(day) {
     const r = this.related(day.id, 'overnachting');
