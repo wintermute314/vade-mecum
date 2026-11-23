@@ -1,8 +1,9 @@
 // Lokale opslag in IndexedDB. Store "trips": de reisgegevens zonder bijlagen. Store "files": bijlagen als Blob.
+// Store "notes": eigen notities per fiche, los van het reisbestand, zodat ze een nieuwe import overleven.
 // Als IndexedDB niet beschikbaar is (bv. privévenster), valt de app terug op geheugen voor deze sessie.
-const DB_NAME = 'reisapp', DB_VERSION = 1;
+const DB_NAME = 'reisapp', DB_VERSION = 2;
 let dbp = null;
-const mem = { trips: new Map(), files: new Map() };
+const mem = { trips: new Map(), files: new Map(), notes: new Map() };
 let useMem = false;
 
 function open() {
@@ -14,6 +15,7 @@ function open() {
       const db = req.result;
       if (!db.objectStoreNames.contains('trips')) db.createObjectStore('trips', { keyPath: 'trip.id' });
       if (!db.objectStoreNames.contains('files')) db.createObjectStore('files');
+      if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'key' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => { useMem = true; resolve(null); };
@@ -50,7 +52,7 @@ export async function getTrip(id) {
 export async function saveTrip(data, files) {
   const db = await open();
   if (!db) { mem.trips.set(data.trip.id, data); for (const [k, b] of files) mem.files.set(data.trip.id + '/' + k, b); return; }
-  await deleteTrip(data.trip.id);
+  await removeTripData(data.trip.id);   // notities blijven staan
   await tx('trips', 'readwrite', s => { s.put(data); });
   await tx('files', 'readwrite', s => { for (const [k, b] of files) s.put(b, data.trip.id + '/' + k); });
 }
@@ -60,11 +62,32 @@ export async function updateTrip(data) {
   if (!db) { mem.trips.set(data.trip.id, data); return; }
   await tx('trips', 'readwrite', s => { s.put(data); });
 }
-export async function deleteTrip(id) {
+async function removeTripData(id) {
   const db = await open();
   if (!db) { mem.trips.delete(id); for (const k of [...mem.files.keys()]) if (k.startsWith(id + '/')) mem.files.delete(k); return; }
   await tx('trips', 'readwrite', s => { s.delete(id); });
-  await tx('files', 'readwrite', s => { s.delete(IDBKeyRange.bound(id + '/', id + '/￿')); });
+  await tx('files', 'readwrite', s => { s.delete(prefixRange(id)); });
+}
+const prefixRange = (id) => IDBKeyRange.bound(id + '/', id + '/\uffff');
+// Reis volledig van het toestel verwijderen, ook de notities.
+export async function deleteTrip(id) {
+  await removeTripData(id);
+  const db = await open();
+  if (!db) { for (const k of [...mem.notes.keys()]) if (k.startsWith(id + '/')) mem.notes.delete(k); return; }
+  await tx('notes', 'readwrite', s => { s.delete(prefixRange(id)); });
+}
+
+// ---- notities (los van het reisbestand) ----
+export async function getNotes(tripId) {
+  const db = await open();
+  if (!db) return [...mem.notes.values()].filter(n => n.key.startsWith(tripId + '/'));
+  return await tx('notes', 'readonly', s => req2p(s.getAll(prefixRange(tripId))));
+}
+// note = { key: tripId/entityId, tripId, entityId, name, text, updated }. Lege tekst wist de notitie.
+export async function putNote(note) {
+  const db = await open();
+  if (!db) { note.text ? mem.notes.set(note.key, note) : mem.notes.delete(note.key); return; }
+  await tx('notes', 'readwrite', s => { note.text ? s.put(note) : s.delete(note.key); });
 }
 export async function getFile(tripId, attId) {
   const db = await open();
