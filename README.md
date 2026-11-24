@@ -18,7 +18,7 @@ css/app.css             mobiele opmaak, licht en donker
 js/app.js               routes (#/start, #/dag/…, #/e/…, #/gids, #/zoek, #/reizen) en schermen
 js/graph.js             de reis als graph in het geheugen: knopen, relaties in beide richtingen, zoekindex, naamherkenning
 js/text.js              tekstopmaak met [[id]]-links en automatische naamlinks
-js/db.js                IndexedDB: reizen en bijlagen (Blob), lokaal op het toestel
+js/db.js                IndexedDB: reizen, bijlagen, notities en foto's (Blob), lokaal op het toestel
 js/validate.js          controle van een reisbestand (browser én Node)
 js/migrate.js           migraties bij een toekomstige major-versie van het schema
 sw.js                   service worker: app offline
@@ -39,7 +39,7 @@ Het datamodel is een graph, maar er is geen graph-database nodig. Een reis heeft
 
 ## Schema en versies
 
-Zie [schema/SCHEMA.md](schema/SCHEMA.md). Kort: `schemaVersion` 1.x is altijd achterwaarts compatibel; een nieuwe module (zoals Route) komt erbij als 1.1. De app toont onbekende types en relaties algemeen in plaats van te weigeren.
+Zie [schema/SCHEMA.md](schema/SCHEMA.md). Kort: `schemaVersion` 1.x is altijd achterwaarts compatibel; een nieuwe module (zoals Route) komt erbij als 1.2. Schema 1.1 voegde foto's van het web toe (zie "Foto's" in SCHEMA.md). De app toont onbekende types en relaties algemeen in plaats van te weigeren.
 
 ## Lokaal draaien
 

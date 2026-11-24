@@ -1,7 +1,7 @@
 {
   "$comment": "Machineleesbare schemabeschrijving van een reisdatabase (reisdb). Zie SCHEMA.md voor uitleg en regels.",
   "format": "reisdb",
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "modules": {
     "kern": {
       "version": "1.0",
@@ -89,14 +89,14 @@
     "maps": "Google Maps-url",
     "tags": "lijst",
     "attachments": "lijst bijlage-id's",
-    "image": "bijlage-id van een afbeelding",
+    "image": "bijlage-id van een afbeelding, of een foto van het web: {url, page, file, author, license, licenseUrl, source, caption} (sinds 1.1)",
     "codes": "lijst {label, value, format: qr|tekst}",
     "sensitive": "lijst attr-sleutels die gemaskeerd worden"
   },
   "plannedModules": {
     "route": {
       "label": "Route",
-      "description": "Gepland voor bv. een fietstocht: GPX-tracks (als bijlage), etappes, hoogteprofiel en kaart. Wordt toegevoegd als schemaVersion 1.1 zonder bestaande bestanden te breken."
+      "description": "Gepland voor bv. een fietstocht: GPX-tracks (als bijlage), etappes, hoogteprofiel en kaart. Wordt toegevoegd als schemaVersion 1.2 zonder bestaande bestanden te breken."
     }
   }
 }

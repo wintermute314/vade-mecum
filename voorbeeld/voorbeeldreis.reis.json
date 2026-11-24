@@ -1,6 +1,6 @@
 {
  "format": "reisdb",
- "schemaVersion": "1.0",
+ "schemaVersion": "1.1",
  "modules": [
   "kern",
   "cultuur"
@@ -373,7 +373,16 @@
    "priority": 1,
    "summary": "Dubbelzijdig hoofdaltaarstuk voor de dom.",
    "why": "Hét beginpunt van de Sienese schilderkunst. Bekijk zeker ook de kleine verhalende panelen van de achterkant: ze tonen het leven van Christus als een stripverhaal.",
-   "text": "De voorkant toont Maria als koningin van Siena, omringd door heiligen en de vier beschermheiligen van de stad. De achterkant, met tientallen kleine scènes, werd in 1771 losgezaagd; enkele panelen zijn nu in Londen, Washington en New York."
+   "text": "De voorkant toont Maria als koningin van Siena, omringd door heiligen en de vier beschermheiligen van de stad. De achterkant, met tientallen kleine scènes, werd in 1771 losgezaagd; enkele panelen zijn nu in Londen, Washington en New York.",
+   "image": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Duccio_maesta1021.jpg/960px-Duccio_maesta1021.jpg",
+    "file": "Duccio_maesta1021.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Duccio_maesta1021.jpg",
+    "author": "Duccio di Buoninsegna (reproductie)",
+    "license": "Publiek domein",
+    "source": "Wikimedia Commons",
+    "caption": "Voorzijde van de Maestà, 1308–1311"
+   }
   },
   {
    "id": "maesta-simone",

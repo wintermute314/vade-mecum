@@ -138,7 +138,15 @@ main { padding: 12px 16px calc(var(--tab-h) + var(--safe-b) + 24px); max-width: 
 .revealed { font-family: ui-monospace, monospace; font-weight: 700; letter-spacing: .03em; }
 .prose p { margin: .6rem 0; } .prose ul { padding-left: 1.2rem; }
 .ref { font-weight: 600; border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
-.hero { width: 100%; border-radius: 12px; margin: 8px 0; }
+.hero { margin: 10px 0 12px; }
+.hero img { display: block; width: 100%; max-height: 70vh; object-fit: contain; border-radius: 12px; background: var(--soft); cursor: zoom-in; }
+.hero.portrait img { width: auto; max-width: 70%; max-height: 340px; margin: 0 auto; }
+.hero figcaption { font-size: .78rem; line-height: 1.35; color: var(--muted); margin-top: 6px; }
+.hero.portrait figcaption { text-align: center; }
+.hero figcaption a { color: inherit; text-decoration: underline; }
+.work.has-thumb { display: flex; gap: 12px; align-items: flex-start; }
+.work .thumb { width: 76px; height: 76px; object-fit: cover; border-radius: 8px; flex: none; background: var(--soft); }
+.work .w-b { flex: 1; min-width: 0; }
 .work { display: block; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 8px; color: var(--ink); }
 .w-h { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
 .work .why { color: var(--ink); background: var(--why); border-radius: 8px; padding: 6px 8px; margin-top: 6px; }

@@ -5,7 +5,7 @@ import { renderText, inline, esc } from './text.js';
 import { validateTrip } from './validate.js';
 import { migrate } from './migrate.js';
 
-export const APP_VERSION = '0.3.3';
+export const APP_VERSION = '0.4.0';
 const LS_ACTIVE = 'reisapp.active', LS_TODAY = 'reisapp.today', LS_SIZE = 'reisapp.size';
 let installPrompt = null;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -18,6 +18,7 @@ const ls = {
 
 let schema = null, graph = null;
 let notes = new Map();   // entityId → notitie van de actieve reis
+let myPhotos = new Map(); // entityId → eigen foto van de actieve reis
 const $main = document.getElementById('main');
 const $title = document.getElementById('trip-title');
 const scrollMem = new Map();
@@ -208,7 +209,7 @@ function dayBody(d, isToday) {
     ${d.text ? `<div class="prose">${renderText(d.text, graph, d.id)}</div>` : ''}
     ${stay ? section('Overnachting', link(stay)) : ''}
     ${attachList(d)}
-    ${noteBlock(d.id)}
+    ${noteBlock(d.id, false)}
     <p class="hint">Veeg links of rechts voor een andere dag.</p>
   </div>`;
 }
@@ -288,7 +289,7 @@ function viewPractical() {
   const bookings = graph.ofType('boeking').sort((a, b) => String(a.when?.start || '9').localeCompare(String(b.when?.start || '9')));
   const contacts = graph.ofType('persoon').filter(p => /contact|gastheer|gastvrouw|gids|host/i.test(p.attrs?.rol || '') || graph.related(p.id, 'contact-van').length);
   const noteEntities = graph.ofType('notitie');
-  const referenced = new Set(graph.entities.flatMap(e => [...(e.attachments || []), e.image].filter(Boolean)));
+  const referenced = new Set(graph.entities.flatMap(e => [...(e.attachments || []), typeof e.image === 'string' ? e.image : null].filter(Boolean)));
   const docs = [...graph.attachments.values()];
   return `<h1 class="pt">Praktisch</h1>
     ${section('Verblijf', stays.map(s => link(s, `<span class="sm">${esc([fmtWhen(s), s.address].filter(Boolean).join(' · '))}</span>`)).join(''))}
@@ -339,10 +340,131 @@ const ICON_GEMINI = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden
 const claudeUrl = (e) => 'https://claude.ai/new?q=' + encodeURIComponent(aiContext(e));
 
 // ---------- Notities ----------
-function noteBlock(id) {
-  const n = notes.get(id);
+function noteBlock(id, withPhoto = true) {
+  const n = notes.get(id), has = myPhotos.has(id);
+  const photo = withPhoto ? `<div class="actions"><button class="btn sm" data-myphoto="${esc(id)}">📷 ${has ? 'Andere foto' : 'Eigen foto toevoegen'}</button>${has ? `<button class="btn sm ghost" data-myphoto-del="${esc(id)}">Foto verwijderen</button>` : ''}</div>` : '';
   return section('Mijn notities', `<textarea class="note" data-note="${esc(id)}" rows="${n && n.text ? 4 : 2}" placeholder="Bv. een telefoonnummer, een naam, een tip…">${esc(n ? n.text : '')}</textarea>
-    <div class="note-st muted small" data-note-st="${esc(id)}">${n ? 'Bewaard op deze gsm · ' + new Date(n.updated).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) : 'Blijft bewaard, ook als je de reis opnieuw importeert.'}</div>`);
+    <div class="note-st muted small" data-note-st="${esc(id)}">${n ? 'Bewaard op deze gsm · ' + new Date(n.updated).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) : 'Blijft bewaard, ook als je de reis opnieuw importeert.'}</div>${photo}`);
+}
+
+// ---------- Foto's ----------
+// Drie bronnen, in deze volgorde: een eigen foto (op de gsm), een foto van het web (image als object, sinds schema 1.1,
+// na import opgehaald en bewaard in IndexedDB), of een bijlage uit het reisbestand (image als bijlage-id).
+const objUrls = new Map();
+const objUrl = (key, blob) => { if (!objUrls.has(key)) objUrls.set(key, URL.createObjectURL(blob)); return objUrls.get(key); };
+const remoteImage = (e) => (e && e.image && typeof e.image === 'object' && e.image.url) ? e.image : null;
+const commonsUrl = (file) => `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(String(file).replace(/^File:/, '').replace(/ /g, '_'))}?width=960`;
+function photoAttrs(e) {
+  if (myPhotos.has(e.id)) return `data-my="${esc(e.id)}"`;
+  const r = remoteImage(e);
+  if (r) return `data-photo="${esc(r.url)}"${r.file ? ` data-file="${esc(r.file)}"` : ''}`;
+  if (typeof e.image === 'string' && e.image) return `data-att="${esc(e.image)}"`;
+  return '';
+}
+function credit(r) {
+  const lic = r.license ? (r.licenseUrl ? `<a href="${esc(r.licenseUrl)}" target="_blank" rel="noopener">${esc(r.license)}</a>` : esc(r.license)) : '';
+  const src = r.page ? `<a href="${esc(r.page)}" target="_blank" rel="noopener">${esc(r.source || 'bron')}</a>` : esc(r.source || '');
+  return [r.author ? 'Foto: ' + esc(r.author) : '', lic, src].filter(Boolean).join(' · ');
+}
+function heroBlock(e) {
+  const a = photoAttrs(e);
+  if (!a) return '';
+  const r = !myPhotos.has(e.id) && remoteImage(e);
+  const cap = myPhotos.has(e.id) ? 'Eigen foto' : r ? [r.caption ? esc(r.caption) : '', credit(r)].filter(Boolean).join('<br>') : '';
+  return `<figure class="hero${e.type === 'persoon' ? ' portrait' : ''}"><img ${a} alt="${esc((r && r.caption) || e.name)}" data-zoom>${cap ? `<figcaption>${cap}</figcaption>` : ''}</figure>`;
+}
+async function loadImg(img) {
+  const holder = img.closest('figure');
+  const fail = () => { if (holder) holder.remove(); else img.remove(); };
+  let blob = null, key = '';
+  if (img.dataset.my) { const r = myPhotos.get(img.dataset.my); blob = r && r.blob; key = 'my:' + img.dataset.my + ':' + (r && r.updated); }
+  else if (img.dataset.att) { blob = await db.getFile(graph.trip.id, img.dataset.att); key = 'att:' + graph.trip.id + '/' + img.dataset.att; }
+  else if (img.dataset.photo) { blob = await db.getPhoto(img.dataset.photo); key = 'ph:' + img.dataset.photo; }
+  if (blob) { img.src = objUrl(key, blob); return; }
+  if (img.dataset.photo && navigator.onLine) {
+    // Nog niet op de gsm (bv. ophalen bezig of mislukt): rechtstreeks van het web tonen.
+    img.onerror = () => { if (img.dataset.file && !img.dataset.tried) { img.dataset.tried = '1'; img.src = commonsUrl(img.dataset.file); } else fail(); };
+    img.src = img.dataset.photo; return;
+  }
+  fail();
+}
+function remoteList(g = graph) {
+  const m = new Map();
+  for (const e of g.entities) { const r = remoteImage(e); if (r && !m.has(r.url)) m.set(r.url, r); }
+  return [...m.values()];
+}
+async function fetchPhoto(r) {
+  for (const u of [r.url, r.file && commonsUrl(r.file)].filter(Boolean)) {
+    try {
+      const res = await fetch(u, { mode: 'cors', credentials: 'omit' });
+      if (!res.ok) continue;
+      const b = await res.blob();
+      if (!b.size || (b.type && !b.type.startsWith('image/'))) continue;
+      await db.putPhoto(r.url, b);
+      return true;
+    } catch {}
+  }
+  return false;
+}
+let syncing = null;
+// Haalt de foto's van de actieve reis op die nog niet op de gsm staan, drie tegelijk.
+function syncPhotos(manual = false) {
+  if (!graph || syncing) return syncing;
+  const tripId = graph.trip.id;
+  syncing = (async () => {
+    const have = new Set(await db.photoKeys());
+    const todo = remoteList().filter(r => !have.has(r.url));
+    if (!todo.length) { if (manual) toast("Alle foto's staan al op de gsm."); return; }
+    if (!navigator.onLine) { if (manual) toast("Geen internet. De foto's worden opgehaald zodra er verbinding is."); return; }
+    let done = 0, ok = 0, i = 0;
+    const worker = async () => {
+      while (i < todo.length) {
+        const r = todo[i++];
+        if (await fetchPhoto(r)) ok++;
+        done++;
+        if (todo.length > 3 && done < todo.length && done % 5 === 0) toast(`Foto's ophalen: ${done} van ${todo.length}…`, 5000);
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    const bad = todo.length - ok;
+    toast(bad ? `${ok} ${ok === 1 ? 'foto' : "foto's"} bewaard voor offline, ${bad} lukten niet.` : `${ok} ${ok === 1 ? 'foto' : "foto's"} bewaard voor offline gebruik.`, 3500);
+    if (graph && graph.trip.id === tripId && parseHash().name === 'reizen') render();
+  })().finally(() => { syncing = null; });
+  return syncing;
+}
+// Foto's van het web die geen enkele reis nog gebruikt, opruimen.
+async function cleanPhotos() {
+  try {
+    const used = new Set();
+    for (const t of await db.listTrips()) { const d = await db.getTrip(t.id); for (const e of (d && d.entities) || []) { const r = remoteImage(e); if (r) used.add(r.url); } }
+    const unused = (await db.photoKeys()).filter(k => !used.has(k));
+    if (unused.length) await db.deletePhotos(unused);
+  } catch {}
+}
+// Eigen foto via camera of galerij, verkleind tot 1600 px.
+function addMyPhoto(id) {
+  const inp = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+  inp.addEventListener('change', async () => {
+    const f = inp.files[0];
+    if (!f) return;
+    const blob = await shrink(f, 1600);
+    const e = graph.get(id);
+    const rec = { key: graph.trip.id + '/' + id, tripId: graph.trip.id, entityId: id, name: e ? e.name : id, blob, updated: new Date().toISOString() };
+    await db.putMyPhoto(rec);
+    myPhotos.set(id, rec);
+    toast('Foto bewaard op deze gsm.');
+    render();
+  });
+  inp.click();
+}
+async function shrink(file, max) {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = Object.assign(document.createElement('canvas'), { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) });
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    return await new Promise(res => c.toBlob(b => res(b || file), 'image/jpeg', 0.85));
+  } catch { return file; }
 }
 async function saveNote(id, text) {
   const e = graph.get(id);
@@ -437,11 +559,12 @@ function qrSvg(value) {
 function workCard(entity, rel) {
   const makers = graph.related(entity.id, 'maakte', 'in').map(m => m.entity.name).join(', ');
   const sub = [makers, fmtWhen(entity), rel?.attrs?.zaal || entity.attrs?.zaal].filter(Boolean).join(' · ');
-  return `<a class="work" href="#/e/${encodeURIComponent(entity.id)}">
+  const pa = photoAttrs(entity);
+  return `<a class="work${pa ? ' has-thumb' : ''}" href="#/e/${encodeURIComponent(entity.id)}">${pa ? `<img class="thumb" ${pa} alt="" loading="lazy">` : ''}<div class="w-b">
     <div class="w-h"><span class="nm">${icon(entity)} ${esc(entity.name)}</span>${entity.priority ? `<span class="prio p${entity.priority}">${PRIO[entity.priority] || ''}</span>` : ''}</div>
     ${sub ? `<div class="sm">${esc(sub)}</div>` : ''}
     ${entity.why ? `<div class="why">${inline(entity.why, null)}</div>` : entity.summary ? `<div class="sm">${esc(entity.summary)}</div>` : ''}
-  </a>`;
+  </div></a>`;
 }
 
 function viewEntity(id) {
@@ -496,7 +619,7 @@ function viewEntity(id) {
     ${e.summary ? `<p class="lead">${esc(e.summary)}</p>` : ''}
     <div class="toolbar">${tools}</div>
     ${e.why ? `<div class="whybox"><b>Waarom?</b> ${inline(e.why, graph, e.id)}</div>` : ''}
-    ${e.image ? `<img class="hero" data-att="${esc(e.image)}" alt="">` : ''}
+    ${heroBlock(e)}
     ${factRows.length || attrRows.length ? `<table class="attrs">${[...factRows, ...attrRows].join('')}</table>` : ''}
     ${codeBlock(e)}
     ${attachList(e)}
@@ -554,6 +677,12 @@ async function viewTrips() {
   const trips = await db.listTrips();
   const active = ls.get(LS_ACTIVE);
   const persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted().catch(() => false) : false;
+  let photoInfo = '';
+  if (graph) {
+    const want = remoteList(), have = new Set(await db.photoKeys()), n = want.filter(r => have.has(r.url)).length;
+    if (want.length || myPhotos.size) photoInfo = section("Foto's", `<p class="muted">${want.length ? `${n} van ${want.length} foto's uit het reisbestand staan op deze gsm${n < want.length ? '; de rest wordt opgehaald zodra er internet is' : ' en zijn ook offline te zien'}.` : ''}${myPhotos.size ? ` Eigen foto's: ${myPhotos.size}.` : ''}</p>
+      ${want.length ? `<div class="actions"><button class="btn sm" data-act="photos-sync">🖼️ Foto's ophalen</button></div>` : ''}`);
+  }
   return `<h1 class="pt">Reizen</h1>
     <p class="muted">Je kunt meerdere reizen bewaren. Tik op een reis om ze actief te maken; bovenaan staat altijd de actieve reis.</p>
     ${trips.length ? `<div class="list">${trips.map(t => `<div class="trip ${t.id === active ? 'on' : ''}">
@@ -565,6 +694,7 @@ async function viewTrips() {
     </div>
     ${graph ? section('Mijn notities', `<p class="muted">Je notities staan los van het reisbestand: ze blijven bewaard als je de reis opnieuw importeert. Maak af en toe een back-up, bv. naar Drive.</p>
       <div class="actions"><button class="btn sm" data-act="notes-export">⬆︎ Notities exporteren (${notes.size})</button><button class="btn sm" data-act="notes-import">⬇︎ Notities importeren</button></div>`) : ''}
+    ${photoInfo}
     ${section('Lettergrootte', `<div class="sizes">${[['normaal', 'Normaal'], ['groot', 'Groot'], ['extra', 'Extra groot']].map(([k, l]) => `<button class="btn ${(ls.get(LS_SIZE) || 'groot') === k ? 'on' : ''}" data-size="${k}">${l}</button>`).join('')}</div>`)}
     ${section('Installeren', installBox(true) || '<p class="muted">Vade Mecum is geïnstalleerd.</p>')}
     ${section('Datum', `<p class="muted">“Vandaag” gebruikt de datum van de telefoon. Om een reis vooraf te testen kun je een datum instellen.</p>
@@ -574,8 +704,9 @@ async function viewTrips() {
 }
 function bindTrips() {
   $main.querySelectorAll('[data-activate]').forEach(b => b.addEventListener('click', async () => { await activate(b.dataset.activate); location.hash = '#/start'; }));
-  $main.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => confirmBox(`Reis verwijderen van dit toestel? Ook je notities bij deze reis worden gewist; exporteer ze eerst als je ze wilt bewaren.`, async () => {
+  $main.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => confirmBox(`Reis verwijderen van dit toestel? Ook je notities en eigen foto's bij deze reis worden gewist; exporteer de notities eerst als je ze wilt bewaren.`, async () => {
     await db.deleteTrip(b.dataset.delete);
+    await cleanPhotos();
     if (ls.get(LS_ACTIVE) === b.dataset.delete) { ls.set(LS_ACTIVE, null); graph = null; setTitle(); }
     render();
   })));
@@ -625,7 +756,17 @@ function bindCommon() {
     v.querySelector('.cv-value').textContent = (c.format || 'qr') === 'qr' ? c.value : '';
     v.hidden = false;
   }));
-  $main.querySelectorAll('img[data-att]').forEach(async img => { const blob = await db.getFile(graph.trip.id, img.dataset.att); if (blob) img.src = URL.createObjectURL(blob); });
+  $main.querySelectorAll('img[data-att], img[data-photo], img[data-my]').forEach(loadImg);
+  $main.querySelectorAll('img[data-zoom]').forEach(img => img.addEventListener('click', () => {
+    if (!img.src) return;
+    const v = document.getElementById('viewer'); v.querySelector('img').src = img.src; v.hidden = false;
+  }));
+  $main.querySelectorAll('[data-act="photos-sync"]').forEach(b => b.addEventListener('click', () => syncPhotos(true)));
+  $main.querySelectorAll('[data-myphoto]').forEach(b => b.addEventListener('click', () => addMyPhoto(b.dataset.myphoto)));
+  $main.querySelectorAll('[data-myphoto-del]').forEach(b => b.addEventListener('click', () => confirmBox('Je eigen foto van deze fiche verwijderen?', async () => {
+    const id = b.dataset.myphotoDel;
+    await db.deleteMyPhoto(graph.trip.id + '/' + id); myPhotos.delete(id); render();
+  })));
 }
 
 async function openAttachment(id, download) {
@@ -670,6 +811,7 @@ async function importData(raw, sourceName) {
   await db.saveTrip(stored, files);
   db.persist();
   await activate(data.trip.id);
+  cleanPhotos();
   if (warnings.length) showReport([], warnings, `“${data.trip.title}” is ${existed ? 'bijgewerkt' : 'geïmporteerd'}, met opmerkingen:`);
   else toast(`“${data.trip.title}” is ${existed ? 'bijgewerkt' : 'geïmporteerd'}.`);
   location.hash = '#/start'; render();
@@ -695,7 +837,11 @@ async function activate(id) {
   if (m.changed) { data = m.data; await db.updateTrip(data); }
   graph = new Graph(data, schema);
   notes = new Map((await db.getNotes(id)).map(n => [n.entityId, n]));
+  myPhotos = new Map((await db.getMyPhotos(id)).map(p => [p.entityId, p]));
+  for (const u of objUrls.values()) URL.revokeObjectURL(u);
+  objUrls.clear();
   ls.set(LS_ACTIVE, id); setTitle();
+  setTimeout(() => syncPhotos(), 1500);   // ontbrekende foto's op de achtergrond ophalen
 }
 function setTitle() { $title.textContent = graph ? graph.trip.title : 'Vade Mecum'; document.title = graph ? graph.trip.title + ' · Vade Mecum' : 'Vade Mecum'; }
 
@@ -725,6 +871,7 @@ async function start() {
   });
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => { b.closest('.overlay').hidden = true; }));
   window.addEventListener('hashchange', render);
+  window.addEventListener('online', () => syncPhotos());
   window.addEventListener('scroll', () => scrollMem.set(location.hash, window.scrollY), { passive: true });
   const active = ls.get(LS_ACTIVE);
   if (active) await activate(active);

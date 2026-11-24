@@ -25,17 +25,32 @@ const table = {
 };
 r = migrate(sample, 3, table);
 assert.equal(r.changed, true);
-assert.equal(r.from, '1.0');
+assert.equal(r.from, sample.schemaVersion);
 assert.equal(r.data.schemaVersion, '3.0');
-assert.equal(r.data.migratedFrom, '1.0');
+assert.equal(r.data.migratedFrom, sample.schemaVersion);
 assert.equal(r.data.trip.titel, sample.trip.title);
-assert.equal(sample.schemaVersion, '1.0', 'origineel blijft ongewijzigd');
+assert.equal(sample.schemaVersion, '1.1', 'origineel blijft ongewijzigd');
 
-// 4. Een minor-versie (1.3) migreert niet en laadt in een 1.0-app met hooguit een waarschuwing.
-r = migrate({ ...sample, schemaVersion: '1.3' }, 1);
+// 4. Een minor-versie (1.9) migreert niet en laadt in een oudere 1.x-app met hooguit een waarschuwing.
+r = migrate({ ...sample, schemaVersion: '1.9' }, 1);
 assert.equal(r.changed, false);
 const v = validateTrip(r.data, schema);
 assert.equal(v.errors.length, 0);
 assert.ok(v.warnings.some(w => w.includes('nieuwer')));
+
+// 5. Een 1.0-bestand (zonder foto's van het web) blijft geldig in de 1.1-app.
+const old = JSON.parse(JSON.stringify(sample));
+old.schemaVersion = '1.0';
+for (const e of old.entities) if (e.image && typeof e.image === 'object') delete e.image;
+assert.equal(validateTrip(migrate(old, 1).data, schema).errors.length, 0);
+
+// 6. Foto's (sinds 1.1): image als object met https-url; zonder maker of licentie een waarschuwing, geen fout.
+const withImg = (image) => { const d = JSON.parse(JSON.stringify(sample)); d.entities[0].image = image; return validateTrip(d, schema); };
+assert.equal(withImg({ url: 'https://upload.wikimedia.org/x.jpg', author: 'A', license: 'CC BY 4.0' }).errors.length, 0);
+const noLic = withImg({ url: 'https://upload.wikimedia.org/x.jpg' });
+assert.equal(noLic.errors.length, 0);
+assert.ok(noLic.warnings.some(w => w.includes('naamsvermelding')));
+assert.ok(withImg({ url: 'http://voorbeeld.be/x.jpg' }).errors.length > 0);
+assert.ok(withImg('bestaat-niet').errors.length > 0);
 
 console.log('migratietests: alles ok');

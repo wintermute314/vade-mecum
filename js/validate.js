@@ -59,7 +59,11 @@ export function validateTrip(data, schema) {
     if (e.priority != null && ![1, 2, 3].includes(e.priority)) err(`${where}: priority moet 1, 2 of 3 zijn.`);
     for (const c of e.codes || []) if (!c || !c.value) err(`${where}: elke code heeft een value nodig.`);
     for (const a of e.attachments || []) if (!attIds.has(a)) err(`${where}: bijlage "${a}" bestaat niet.`);
-    if (e.image && !attIds.has(e.image)) err(`${where}: afbeelding "${e.image}" bestaat niet.`);
+    if (typeof e.image === 'string') { if (e.image && !attIds.has(e.image)) err(`${where}: afbeelding "${e.image}" bestaat niet.`); }
+    else if (e.image != null) {
+      if (typeof e.image !== 'object' || !/^https:\/\//.test(e.image.url || '')) err(`${where}: image heeft een url nodig die met https:// begint.`);
+      else if (!e.image.author || !e.image.license) warn(`${where}: foto zonder ${!e.image.author ? 'author' : 'license'}; vrije licenties vragen een naamsvermelding.`);
+    }
     for (const m of String(e.text || '').matchAll(/\[\[([^\]|]+)(\|[^\]]*)?\]\]/g)) {
       if (!(data.entities || []).some(x => x && x.id === m[1].trim())) warn(`${where}: link [[${m[1]}]] verwijst naar een onbekende id.`);
     }
