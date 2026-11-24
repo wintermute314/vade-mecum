@@ -1,9 +1,11 @@
 // Lokale opslag in IndexedDB. Store "trips": de reisgegevens zonder bijlagen. Store "files": bijlagen als Blob.
 // Store "notes": eigen notities per fiche, los van het reisbestand, zodat ze een nieuwe import overleven.
+// Store "photos": foto's van het web (Blob), sleutel = url, gedeeld door alle reizen; overleven een nieuwe import.
+// Store "myphotos": eigen foto's per fiche (sleutel reis-id/fiche-id), zoals notities los van het reisbestand.
 // Als IndexedDB niet beschikbaar is (bv. privévenster), valt de app terug op geheugen voor deze sessie.
-const DB_NAME = 'reisapp', DB_VERSION = 2;
+const DB_NAME = 'reisapp', DB_VERSION = 3;
 let dbp = null;
-const mem = { trips: new Map(), files: new Map(), notes: new Map() };
+const mem = { trips: new Map(), files: new Map(), notes: new Map(), photos: new Map(), myphotos: new Map() };
 let useMem = false;
 
 function open() {
@@ -16,6 +18,8 @@ function open() {
       if (!db.objectStoreNames.contains('trips')) db.createObjectStore('trips', { keyPath: 'trip.id' });
       if (!db.objectStoreNames.contains('files')) db.createObjectStore('files');
       if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos');
+      if (!db.objectStoreNames.contains('myphotos')) db.createObjectStore('myphotos', { keyPath: 'key' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => { useMem = true; resolve(null); };
@@ -69,12 +73,52 @@ async function removeTripData(id) {
   await tx('files', 'readwrite', s => { s.delete(prefixRange(id)); });
 }
 const prefixRange = (id) => IDBKeyRange.bound(id + '/', id + '/\uffff');
-// Reis volledig van het toestel verwijderen, ook de notities.
+// Reis volledig van het toestel verwijderen, ook de notities en eigen foto's.
 export async function deleteTrip(id) {
   await removeTripData(id);
   const db = await open();
-  if (!db) { for (const k of [...mem.notes.keys()]) if (k.startsWith(id + '/')) mem.notes.delete(k); return; }
+  if (!db) { for (const m of [mem.notes, mem.myphotos]) for (const k of [...m.keys()]) if (k.startsWith(id + '/')) m.delete(k); return; }
   await tx('notes', 'readwrite', s => { s.delete(prefixRange(id)); });
+  await tx('myphotos', 'readwrite', s => { s.delete(prefixRange(id)); });
+}
+
+// ---- foto's van het web (sleutel = url) ----
+export async function getPhoto(url) {
+  const db = await open();
+  if (!db) return mem.photos.get(url) || null;
+  return (await tx('photos', 'readonly', s => req2p(s.get(url)))) || null;
+}
+export async function putPhoto(url, blob) {
+  const db = await open();
+  if (!db) { mem.photos.set(url, blob); return; }
+  await tx('photos', 'readwrite', s => { s.put(blob, url); });
+}
+export async function photoKeys() {
+  const db = await open();
+  if (!db) return [...mem.photos.keys()];
+  return await tx('photos', 'readonly', s => req2p(s.getAllKeys()));
+}
+export async function deletePhotos(urls) {
+  const db = await open();
+  if (!db) { for (const u of urls) mem.photos.delete(u); return; }
+  await tx('photos', 'readwrite', s => { for (const u of urls) s.delete(u); });
+}
+
+// ---- eigen foto's: { key: tripId/entityId, tripId, entityId, blob, updated } ----
+export async function getMyPhotos(tripId) {
+  const db = await open();
+  if (!db) return [...mem.myphotos.values()].filter(p => p.key.startsWith(tripId + '/'));
+  return await tx('myphotos', 'readonly', s => req2p(s.getAll(prefixRange(tripId))));
+}
+export async function putMyPhoto(rec) {
+  const db = await open();
+  if (!db) { mem.myphotos.set(rec.key, rec); return; }
+  await tx('myphotos', 'readwrite', s => { s.put(rec); });
+}
+export async function deleteMyPhoto(key) {
+  const db = await open();
+  if (!db) { mem.myphotos.delete(key); return; }
+  await tx('myphotos', 'readwrite', s => { s.delete(key); });
 }
 
 // ---- notities (los van het reisbestand) ----
