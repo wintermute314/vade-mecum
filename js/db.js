@@ -34,9 +34,11 @@ function tx(store, mode, fn) {
       const t = db.transaction(store, mode);
       const s = t.objectStore(store);
       let result;
-      Promise.resolve(fn(s)).then(r => { result = r; });
+      Promise.resolve(fn(s)).then(r => { result = r; }, e => { try { t.abort(); } catch {} reject(e); });
       t.oncomplete = () => resolve(result);
       t.onerror = () => reject(t.error);
+      // Een volle opslag (QuotaExceededError) breekt de transactie af zonder onerror: zonder dit bleef de import hangen.
+      t.onabort = () => reject(t.error || new DOMException('Opslag afgebroken', 'AbortError'));
     });
   });
 }
@@ -55,10 +57,18 @@ export async function getTrip(id) {
 }
 export async function saveTrip(data, files) {
   const db = await open();
-  if (!db) { mem.trips.set(data.trip.id, data); for (const [k, b] of files) mem.files.set(data.trip.id + '/' + k, b); return; }
-  await removeTripData(data.trip.id);   // notities blijven staan
-  await tx('trips', 'readwrite', s => { s.put(data); });
-  await tx('files', 'readwrite', s => { for (const [k, b] of files) s.put(b, data.trip.id + '/' + k); });
+  if (!db) { removeMem(data.trip.id); mem.trips.set(data.trip.id, data); for (const [k, b] of files) mem.files.set(data.trip.id + '/' + k, b); return; }
+  // Eén transactie: lukt het bewaren niet (bv. opslag vol), dan blijft de vorige versie van de reis staan. Notities blijven staan.
+  await new Promise((resolve, reject) => {
+    const t = db.transaction(['trips', 'files'], 'readwrite');
+    const tr = t.objectStore('trips'), fs = t.objectStore('files');
+    tr.delete(data.trip.id); fs.delete(prefixRange(data.trip.id));
+    tr.put(data);
+    for (const [k, b] of files) fs.put(b, data.trip.id + '/' + k);
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error || new DOMException('Opslag afgebroken', 'AbortError'));
+  });
 }
 // Alleen de reisgegevens vervangen (bijlagen blijven), bv. na een migratie.
 export async function updateTrip(data) {
@@ -66,9 +76,10 @@ export async function updateTrip(data) {
   if (!db) { mem.trips.set(data.trip.id, data); return; }
   await tx('trips', 'readwrite', s => { s.put(data); });
 }
+function removeMem(id) { mem.trips.delete(id); for (const k of [...mem.files.keys()]) if (k.startsWith(id + '/')) mem.files.delete(k); }
 async function removeTripData(id) {
   const db = await open();
-  if (!db) { mem.trips.delete(id); for (const k of [...mem.files.keys()]) if (k.startsWith(id + '/')) mem.files.delete(k); return; }
+  if (!db) { removeMem(id); return; }
   await tx('trips', 'readwrite', s => { s.delete(id); });
   await tx('files', 'readwrite', s => { s.delete(prefixRange(id)); });
 }
@@ -143,3 +154,8 @@ export async function persist() {
   return false;
 }
 export const isMemoryOnly = () => useMem;
+// Hoeveel ruimte de browser nog geeft, in bytes (of null als de browser het niet zegt).
+export async function estimate() {
+  try { if (navigator.storage && navigator.storage.estimate) { const e = await navigator.storage.estimate(); return { usage: e.usage || 0, quota: e.quota || 0 }; } } catch {}
+  return null;
+}

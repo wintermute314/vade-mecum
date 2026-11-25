@@ -4,8 +4,8 @@ Vade Mecum is een persoonlijke reisgids voor de gsm (Android, Chrome). Per reis 
 
 ## Gebruiken
 
-1. Open de app-URL in Chrome op de gsm en kies **Toevoegen aan startscherm**.
-2. Tik op de reisnaam bovenaan › **Reis importeren** en kies het `.reis.json`-bestand (bv. uit Drive).
+1. Open de app-URL in Chrome op de gsm en kies **App installeren** of **Toevoegen aan startscherm**. Open de link niet vanuit WhatsApp of Gmail zonder eerst **Openen in Chrome** te kiezen: in de ingebouwde browser van die apps kun je niet installeren en blijft niets bewaard. In Samsung Internet: ☰ › **Pagina toevoegen aan** › **Startscherm**.
+2. Tik op de reisnaam bovenaan › **Reis importeren** en kies het `.reis.json`-bestand (bv. uit Drive). Of deel het bestand vanuit Drive, WhatsApp of Bestanden met **Vade Mecum** (werkt zodra de app geïnstalleerd is). Lukt de import niet, dan toont de app waarom, met onderaan de app- en browserversie.
 3. Daarna werkt alles offline. Opnieuw importeren met dezelfde `trip.id` vervangt de reis.
 
 Schermen: **Start** (vandaag + snel naar musea, verblijf, boekingen), **Dagen** (schema, veeg tussen dagen), **Gids** (alle fiches met filters op type, periode, plaats en dag, plus een tijdlijn), **Praktisch** (verblijf, boekingen, documenten, contacten), en zoeken over alle tekst.

@@ -5,7 +5,7 @@ import { renderText, inline, esc } from './text.js';
 import { validateTrip } from './validate.js';
 import { migrate } from './migrate.js';
 
-export const APP_VERSION = '0.4.0';
+export const APP_VERSION = '0.4.1';
 const LS_ACTIVE = 'reisapp.active', LS_TODAY = 'reisapp.today', LS_SIZE = 'reisapp.size';
 let installPrompt = null;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -123,7 +123,16 @@ function installBox(always) {
   if (isStandalone()) return '';
   if (installPrompt) return `<div class="install"><span class="ic">📲</span><span class="rt"><span class="nm">Zet Vade Mecum op je startscherm</span><span class="sm">Dan opent hij als een gewone app, ook offline.</span></span><button class="btn primary sm" data-act="install">Installeren</button></div>`;
   if (!always) return '';
-  return `<div class="install"><span class="ic">📲</span><span class="rt"><span class="nm">Op je startscherm zetten</span><span class="sm">Tik in Chrome rechtsboven op ⋮ en kies <b>App installeren</b> of <b>Toevoegen aan startscherm</b>. Zie je dat niet, herlaad dan de pagina eenmaal en kijk opnieuw.</span></span></div>`;
+  const ua = navigator.userAgent;
+  const box = (nm, sm) => `<div class="install"><span class="ic">📲</span><span class="rt"><span class="nm">${nm}</span><span class="sm">${sm}</span></span></div>`;
+  // Ingebouwde browser van een andere app (WhatsApp, Gmail, Facebook…): daar kun je niet installeren en niets blijvend bewaren.
+  if (/; wv\)|FBAN|FBAV|Instagram|WhatsApp|GSA\//.test(ua))
+    return box('Eerst openen in Chrome', `Je bekijkt Vade Mecum in de browser van een andere app. Tik rechtsboven op ⋮ en kies <b>Openen in Chrome</b> (of kopieer het adres <b>${esc(location.origin + location.pathname)}</b> naar Chrome). Installeer de app daar.`);
+  if (/SamsungBrowser/.test(ua))
+    return box('Op je startscherm zetten', 'Tik onderaan op ☰ (drie streepjes) › <b>Pagina toevoegen aan</b> › <b>Startscherm</b>. Of open dit adres in Chrome en kies daar ⋮ › <b>App installeren</b>.');
+  if (/Firefox/.test(ua))
+    return box('Op je startscherm zetten', 'Tik op ⋮ › <b>Installeren</b> of <b>Toevoegen aan startscherm</b>. In Chrome werkt Vade Mecum het best.');
+  return box('Op je startscherm zetten', 'Tik in Chrome rechtsboven op ⋮ en kies <b>App installeren</b> of <b>Toevoegen aan startscherm</b>. Zie je dat niet, herlaad dan de pagina eenmaal en kijk opnieuw. Lukt het nog niet: kijk of er een standaard startscherm-app ingesteld is (Instellingen › Apps › Standaard-apps › Startscherm).');
 }
 
 // ---------- Start ----------
@@ -798,35 +807,98 @@ function b64ToBlob(b64, mime) {
   for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
   return new Blob([u], { type: mime });
 }
+const MB = (n) => (n / 1048576).toLocaleString('nl-BE', { maximumFractionDigits: 1 }) + ' MB';
+// Korte uitleg bij een fout, zodat Bart of Claude kan zien waar het misliep (ook als schermafdruk).
+function diag(e) {
+  const ua = navigator.userAgent;
+  const br = /SamsungBrowser\/[\d.]+/.exec(ua)?.[0] || /Firefox\/[\d.]+/.exec(ua)?.[0] || /EdgA?\/[\d.]+/.exec(ua)?.[0] || /Chrome\/\d+/.exec(ua)?.[0] || 'browser?';
+  const andr = /Android [\d.]+/.exec(ua)?.[0] || '';
+  return `Vade Mecum ${APP_VERSION} · ${br}${andr ? ' · ' + andr : ''}${isStandalone() ? ' · app' : ' · browser'}${e ? ' · ' + (e.name || 'Error') + ': ' + (e.message || e) : ''}`;
+}
+async function readFile(f) {
+  if (f.text) return await f.text();
+  return await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsText(f); });
+}
+// Een gekozen of gedeeld bestand importeren. Elke stap geeft bij een fout een duidelijke melding in plaats van niets te doen.
+async function importFile(f) {
+  if (!f) return false;
+  const name = f.name || 'Het bestand';
+  if (!f.size) { showReport([`${name} is leeg (0 bytes). Vaak is het bestand nog niet helemaal gedownload, bv. uit Drive of WhatsApp. Open het eerst eens, of download het opnieuw, en probeer dan nog eens.`], [], 'Import mislukt', diag()); return false; }
+  if (/\.(zip|pdf|docx?|jpe?g|png|heic)$/i.test(name)) { showReport([`${name} is geen reisbestand. Kies het bestand dat eindigt op .reis.json.`], [], 'Import mislukt', diag()); return false; }
+  toast(`${name} wordt gelezen…`, 8000);
+  let text;
+  try { text = await readFile(f); }
+  catch (e) { showReport([`${name} kon niet gelezen worden. Staat het bestand nog in de cloud (Drive, OneDrive)? Download het dan eerst naar de gsm, of open het vanuit de app Bestanden.`], [], 'Import mislukt', diag(e)); return false; }
+  return importData(text, name);
+}
 async function importData(raw, sourceName) {
   let data;
-  try { data = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { showReport([`${sourceName} is geen geldige JSON (${e.message}).`], []); return false; }
+  if (typeof raw === 'string') {
+    const head = raw.replace(/^﻿/, '').trimStart().slice(0, 200);
+    if (/^</.test(head)) { showReport([`${sourceName} is een webpagina en geen reisbestand. Dat gebeurt als je een Drive- of mailvoorbeeld bewaart in plaats van het bestand zelf. Kies in Drive ⋮ › Downloaden, en importeer dan het gedownloade bestand.`], [], 'Import mislukt', diag()); return false; }
+    if (/^PK/.test(head)) { showReport([`${sourceName} is een zip-bestand. Pak het eerst uit en kies dan het .reis.json-bestand.`], [], 'Import mislukt', diag()); return false; }
+    try { data = JSON.parse(raw.replace(/^﻿/, '')); }
+    catch (e) { showReport([`${sourceName} is geen geldige JSON. Misschien is het bestand afgebroken of beschadigd bij het doorsturen; download het opnieuw.`, e.message], [], 'Import mislukt', diag()); return false; }
+  } else data = raw;
+  if (data && data.format === 'vademecum-notities') { await importNotes(JSON.stringify(data)); return true; }
+  if (!data || data.format !== 'reisdb') { showReport([`${sourceName} is geen reisbestand van Vade Mecum (het veld "format" is niet "reisdb").`], [], 'Import mislukt', diag()); return false; }
   data = migrate(data, parseInt(schema.schemaVersion, 10)).data;
   const { errors, warnings } = validateTrip(data, schema);
-  if (errors.length) { showReport(errors, warnings); return false; }
+  if (errors.length) { showReport(errors, warnings, 'Import mislukt', diag()); return false; }
   const files = [];
-  for (const a of data.attachments || []) { files.push([a.id, b64ToBlob(a.data, a.mime)]); }
+  for (const a of data.attachments || []) {
+    try { files.push([a.id, b64ToBlob(a.data || '', a.mime)]); }
+    catch (e) { warnings.push(`Bijlage “${a.title || a.id}” is beschadigd en werd overgeslagen.`); }
+  }
   const stored = { ...data, attachments: (data.attachments || []).map(({ data: _d, ...rest }) => rest), importedAt: new Date().toISOString() };
-  const existed = !!(await db.getTrip(data.trip.id));
-  await db.saveTrip(stored, files);
+  let existed = false;
+  try {
+    existed = !!(await db.getTrip(data.trip.id));
+    await db.saveTrip(stored, files);
+  } catch (e) {
+    const est = await db.estimate();
+    const full = e && (e.name === 'QuotaExceededError' || /quota/i.test(e.message || ''));
+    showReport([full
+      ? `De gsm geeft de app niet genoeg opslagruimte${est ? ` (${MB(est.usage)} van ${MB(est.quota)} in gebruik)` : ''}. Maak ruimte vrij op de gsm, of verwijder een oude reis in 🧳, en probeer opnieuw.`
+      : `De reis kon niet bewaard worden op dit toestel. Sluit de app helemaal af (ook uit de lijst met recente apps), open ze opnieuw en probeer nog eens.`], [], 'Import mislukt', diag(e));
+    return false;
+  }
   db.persist();
   await activate(data.trip.id);
   cleanPhotos();
+  if (db.isMemoryOnly()) warnings.unshift('Deze browser laat geen blijvende opslag toe (privévenster of een app-browser zoals die van WhatsApp of Gmail). De reis verdwijnt zodra je de app sluit. Open Vade Mecum in Chrome of via het icoon op je startscherm.');
   if (warnings.length) showReport([], warnings, `“${data.trip.title}” is ${existed ? 'bijgewerkt' : 'geïmporteerd'}, met opmerkingen:`);
   else toast(`“${data.trip.title}” is ${existed ? 'bijgewerkt' : 'geïmporteerd'}.`);
   location.hash = '#/start'; render();
   return true;
 }
-function showReport(errors, warnings, head) {
+function showReport(errors, warnings, head, info) {
   const d = document.getElementById('report');
+  document.getElementById('toast').hidden = true;
   d.querySelector('h2').textContent = head || 'Import mislukt';
   d.querySelector('.body').innerHTML = (errors.length ? `<ul class="err">${errors.slice(0, 30).map(e => `<li>${esc(e)}</li>`).join('')}</ul>` : '') +
-    (warnings.length ? `<ul class="warn">${warnings.slice(0, 30).map(e => `<li>${esc(e)}</li>`).join('')}</ul>` : '');
+    (warnings.length ? `<ul class="warn">${warnings.slice(0, 30).map(e => `<li>${esc(e)}</li>`).join('')}</ul>` : '') +
+    (info ? `<p class="muted small diag">${esc(info)}</p>` : '');
   d.hidden = false;
 }
 async function loadSample() {
   try { const r = await fetch('voorbeeld/voorbeeldreis.reis.json'); await importData(await r.text(), 'De voorbeeldreis'); }
-  catch (e) { toast('Voorbeeldreis kon niet geladen worden.'); }
+  catch (e) { showReport(['De voorbeeldreis kon niet geladen worden. Is er internet?'], [], 'Import mislukt', diag(e)); }
+}
+
+// Een bestand dat via "Delen › Vade Mecum" binnenkwam (zie share_target in het manifest en sw.js).
+async function takeShared() {
+  if (!/[?&]gedeeld=1/.test(location.search) || !('caches' in window)) return;
+  history.replaceState(null, '', location.pathname + (location.hash || '#/start'));
+  try {
+    const c = await caches.open('vademecum-share');
+    const r = await c.match('gedeeld-bestand');
+    if (!r) { showReport(['Er kwam geen bestand mee bij het delen. Deel het .reis.json-bestand zelf, niet een link ernaar.'], [], 'Import mislukt', diag()); return; }
+    const name = decodeURIComponent(r.headers.get('x-name') || 'gedeeld-bestand.reis.json');
+    const blob = await r.blob();
+    await c.delete('gedeeld-bestand');
+    await importFile(new File([blob], name, { type: blob.type }));
+  } catch (e) { showReport(['Het gedeelde bestand kon niet gelezen worden.'], [], 'Import mislukt', diag(e)); }
 }
 
 async function activate(id) {
@@ -863,12 +935,13 @@ async function start() {
   schema = await (await fetch('schema/schema.json')).json();
   document.getElementById('notesfile').addEventListener('change', async (ev) => {
     const f = ev.target.files[0]; ev.target.value = '';
-    if (f) await importNotes(await f.text());
+    try { if (f) await importNotes(await readFile(f)); } catch (e) { showReport(['Het notitiebestand kon niet gelezen worden.'], [], 'Import mislukt', diag(e)); }
   });
   document.getElementById('file').addEventListener('change', async (ev) => {
     const f = ev.target.files[0]; ev.target.value = '';
-    if (f) await importData(await f.text(), f.name);
+    try { await importFile(f); } catch (e) { showReport(['Er liep iets onverwachts mis bij het importeren.'], [], 'Import mislukt', diag(e)); }
   });
+  await takeShared();
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => { b.closest('.overlay').hidden = true; }));
   window.addEventListener('hashchange', render);
   window.addEventListener('online', () => syncPhotos());

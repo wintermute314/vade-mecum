@@ -24,8 +24,10 @@
   <a href="#/gids" data-tab="gids"><span>🧭</span>Gids</a>
   <a href="#/praktisch" data-tab="praktisch"><span>🎫</span>Praktisch</a>
 </nav>
-<input type="file" id="file" accept=".json,application/json" hidden>
-<input type="file" id="notesfile" accept=".json,application/json" hidden>
+<!-- Bewust geen accept-filter: op veel gsm's krijgt een .reis.json uit WhatsApp, Gmail of Downloads het type
+     "application/octet-stream" en is het dan grijs en niet aan te tikken. De app controleert zelf of het een reisbestand is. -->
+<input type="file" id="file" hidden>
+<input type="file" id="notesfile" hidden>
 <div id="toast" class="toast" hidden></div>
 <div id="viewer" class="overlay" hidden><button class="close" data-close>✕</button><img alt=""></div>
 <div id="codeview" class="overlay light" hidden><button class="close" data-close>✕</button>
